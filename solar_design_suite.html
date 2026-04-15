@@ -1,0 +1,1884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Solar Design Engineer Suite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#020810}
+    #root{min-height:100vh}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+    select option{background:#0a1628;color:#e0f0ff}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:rgba(0,0,0,0.2)}
+    ::-webkit-scrollbar-thumb{background:rgba(0,212,255,0.2);border-radius:4px}
+    ::-webkit-scrollbar-thumb:hover{background:rgba(0,212,255,0.4)}
+    @media print {
+      @page{size:A4;margin:15mm 12mm}
+      body{background:white!important;color:#000!important;font-family:Arial,sans-serif!important}
+      aside,#nav-buttons,.no-print{display:none!important}
+      main{padding:0!important;max-width:100%!important;overflow:visible!important}
+      .print-section{page-break-inside:avoid;margin-bottom:14px}
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+const { useState, useMemo, useCallback } = React;
+
+// ─── CABLE & BREAKER DATA ─────────────────────────────────────────────────
+const AC_CABLES = [
+  {sqmm:1.5, cu:{ground:26,duct:22,air:23}, al:{ground:22,duct:18,air:19}, r90:1.28},
+  {sqmm:2.5, cu:{ground:34,duct:29,air:30}, al:{ground:27,duct:23,air:24}, r90:1.28},
+  {sqmm:4,   cu:{ground:45,duct:38,air:41}, al:{ground:35,duct:30,air:32}, r90:1.28},
+  {sqmm:6,   cu:{ground:56,duct:47,air:52}, al:{ground:46,duct:38,air:42}, r90:1.28},
+  {sqmm:10,  cu:{ground:74,duct:62,air:70}, al:{ground:57,duct:43,air:54}, r90:3.93},
+  {sqmm:16,  cu:{ground:95,duct:79,air:89}, al:{ground:74,duct:61,air:69}, r90:2.44},
+  {sqmm:25,  cu:{ground:122,duct:102,air:119},al:{ground:95,duct:79,air:93},r90:1.53},
+  {sqmm:35,  cu:{ground:146,duct:122,air:147},al:{ground:114,duct:94,air:114},r90:1.11},
+  {sqmm:50,  cu:{ground:173,duct:144,air:179},al:{ground:134,duct:112,air:138},r90:0.82},
+  {sqmm:70,  cu:{ground:212,duct:177,air:226},al:{ground:164,duct:137,air:175},r90:0.56},
+  {sqmm:95,  cu:{ground:254,duct:212,air:279},al:{ground:197,duct:164,air:216},r90:0.41},
+  {sqmm:120, cu:{ground:287,duct:240,air:320},al:{ground:223,duct:187,air:249},r90:0.32},
+  {sqmm:150, cu:{ground:321,duct:269,air:365},al:{ground:249,duct:209,air:284},r90:0.26},
+  {sqmm:185, cu:{ground:362,duct:304,air:422},al:{ground:282,duct:138,air:329},r90:0.21},
+  {sqmm:240, cu:{ground:418,duct:352,air:500},al:{ground:327,duct:176,air:392},r90:0.16},
+  {sqmm:300, cu:{ground:469,duct:396,air:574},al:{ground:369,duct:312,air:458},r90:0.13}
+];
+const DC_CABLES = [
+  {label:'Cu 1c 4 sqmm', sqmm:4, maxA:55, r75:6.19},
+  {label:'Cu 1c 6 sqmm', sqmm:6, maxA:70, r75:4.12}
+];
+const TEMP_F = [{t:25,f:1.04},{t:30,f:1.00},{t:35,f:0.96},{t:40,f:0.91},{t:45,f:0.87},{t:50,f:0.82},{t:55,f:0.76},{t:60,f:0.71},{t:65,f:0.65},{t:70,f:0.58}];
+const TRAY_F = {
+  perforated:{1:[1,0.88,0.82,0.79,0.76,0.73],2:[1,0.87,0.80,0.77,0.73,0.68],3:[1,0.86,0.79,0.76,0.71,0.66]},
+  ladder:    {1:[1,0.87,0.82,0.80,0.79,0.78],2:[1,0.86,0.80,0.78,0.76,0.73],3:[1,0.85,0.79,0.76,0.73,0.70]}
+};
+const MCB_SIZES  = [6,10,16,20,25,32,40,50,63,80,100,125];
+const MCCB_SIZES = [16,20,25,32,40,50,63,80,100,125,160,200,250,320,400,500,630,800,1000,1250,1600];
+const ACB_SIZES  = [800,1000,1250,1600,2000,2500,3200,4000,5000,6300];
+
+// ─── PURE HELPERS (stable references, never re-created) ──────────────────
+const getTF = (t) => TEMP_F.find(r => t <= r.t)?.f ?? TEMP_F[TEMP_F.length-1].f;
+const getGF = (tray, layers, col) => TRAY_F[tray]?.[layers]?.[col] ?? 1;
+const getBase = (sqmm, mat, inst) => { const c = AC_CABLES.find(x => x.sqmm===sqmm); if(!c) return 0; return mat==='copper' ? c.cu[inst] : c.al[inst]; };
+const acVD = (sqmm, I, L, Vll) => { const c = AC_CABLES.find(x => x.sqmm===sqmm); if(!c) return {vdV:0,vdPct:0,plossW:0}; const R=c.r90/1000*L; return {vdV:Math.sqrt(3)*I*R, vdPct:(Math.sqrt(3)*I*R/Vll)*100, plossW:3*I*I*R}; };
+const dcVD = (cable, I, L, stringV) => { const R=cable.r75/1000*2*L; const vdV=I*R; return {vdV, vdPct:stringV>0?vdV/stringV*100:0, plossW:I*I*R}; };
+const getBrkType = (I) => I<=125 ? 'MCB' : I<=800 ? 'MCCB' : 'ACB';
+const getBrkSize = (I) => { const t=getBrkType(I); const s=t==='MCB'?MCB_SIZES:t==='MCCB'?MCCB_SIZES:ACB_SIZES; return s.find(x=>x>=I)||s[s.length-1]; };
+const fmt = (v, d=2) => (isNaN(v)||!isFinite(v)) ? '—' : Number(v).toFixed(d);
+const fmtI = (v) => (isNaN(v)||!isFinite(v)) ? '—' : Math.round(v).toLocaleString();
+const calcBrk = (kW, volt, pf) => {
+  const rawI = (kW*1000)/(Math.sqrt(3)*volt*pf);
+  const designI = rawI * 1.25;
+  const type = getBrkType(designI);
+  const size = getBrkSize(designI);
+  return {rawI, designI, type, size, margin:+(((size-designI)/designI)*100).toFixed(1), ok:size>=designI};
+};
+
+// ─── THEME (constant, never changes) ────────────────────────────────────
+const T = {
+  bg:'#020810', sidebar:'rgba(2,8,20,0.97)', card:'rgba(2,12,28,0.95)',
+  border:'rgba(0,212,255,0.1)', borderY:'rgba(251,191,36,0.15)', borderG:'rgba(16,185,129,0.15)',
+  accent:'#00d4ff', amber:'#fbbf24', green:'#10b981', violet:'#a78bfa',
+  text:'#e0f0ff', muted:'rgba(140,180,230,0.5)', dim:'rgba(100,180,255,0.35)',
+};
+const inp  = {padding:'8px 11px',background:'rgba(0,212,255,0.04)',border:'1px solid rgba(0,212,255,0.12)',borderRadius:7,color:T.text,fontSize:13,fontFamily:'Inter,sans-serif',outline:'none',width:'100%'};
+const inpY = {padding:'8px 11px',background:'rgba(251,191,36,0.04)',border:'1px solid rgba(251,191,36,0.12)',borderRadius:7,color:T.text,fontSize:13,fontFamily:'Inter,sans-serif',outline:'none',width:'100%'};
+const inpG = {padding:'8px 11px',background:'rgba(16,185,129,0.04)',border:'1px solid rgba(16,185,129,0.12)',borderRadius:7,color:T.text,fontSize:13,fontFamily:'Inter,sans-serif',outline:'none',width:'100%'};
+const inpRo= {padding:'8px 11px',background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.04)',borderRadius:7,color:'rgba(100,180,255,0.4)',fontSize:11,fontFamily:"'Share Tech Mono',monospace",outline:'none',width:'100%',cursor:'default'};
+const monoFont = "'Share Tech Mono',monospace";
+const rajFont  = "'Rajdhani',sans-serif";
+
+// ─── SHARED UI COMPONENTS (defined outside, stable) ──────────────────────
+function MonoLbl({children, style={}}) {
+  return <span style={{fontFamily:monoFont,fontSize:9,color:T.dim,letterSpacing:1,textTransform:'uppercase',...style}}>{children}</span>;
+}
+function RajVal({children, color=T.accent, size=16, style={}}) {
+  return <span style={{fontFamily:rajFont,fontSize:size,fontWeight:700,color,...style}}>{children}</span>;
+}
+function Tag({ok, warn, err, children}) {
+  const bg=ok?'rgba(16,185,129,0.1)':warn?'rgba(251,191,36,0.1)':'rgba(239,68,68,0.1)';
+  const bd=ok?'rgba(16,185,129,0.2)':warn?'rgba(251,191,36,0.2)':'rgba(239,68,68,0.2)';
+  const cl=ok?T.green:warn?T.amber:'#ef4444';
+  return <span style={{display:'inline-flex',alignItems:'center',gap:4,fontFamily:monoFont,fontSize:8.5,padding:'3px 9px',borderRadius:4,background:bg,border:`1px solid ${bd}`,color:cl}}>{children}</span>;
+}
+function Sec({children, color='blue', style={}}) {
+  const bd = color==='blue'?T.border:color==='amber'?T.borderY:T.borderG;
+  return <div style={{background:T.card,border:`1px solid ${bd}`,borderRadius:12,overflow:'hidden',marginBottom:18,...style}}>{children}</div>;
+}
+function SecHdr({children, color='blue'}) {
+  const bg = color==='blue'?'rgba(0,212,255,0.025)':color==='amber'?'rgba(251,191,36,0.025)':'rgba(16,185,129,0.025)';
+  const bd = color==='blue'?'rgba(0,212,255,0.08)':color==='amber'?'rgba(251,191,36,0.08)':'rgba(16,185,129,0.08)';
+  const ac = color==='blue'?T.accent:color==='amber'?T.amber:T.green;
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:10,padding:'13px 18px',borderBottom:`1px solid ${bd}`,background:bg}}>
+      <MonoLbl style={{color:ac,fontSize:10,letterSpacing:2}}>{children}</MonoLbl>
+    </div>
+  );
+}
+function StatCard({label, value, unit, color=T.accent}) {
+  return (
+    <div style={{background:'rgba(0,0,0,0.2)',border:'1px solid rgba(0,212,255,0.07)',borderRadius:9,padding:'11px 14px'}}>
+      <MonoLbl style={{marginBottom:4,display:'block'}}>{label}</MonoLbl>
+      <div style={{display:'flex',alignItems:'baseline',gap:4}}>
+        <RajVal size={20} color={color}>{value}</RajVal>
+        {unit && <MonoLbl style={{color:'rgba(100,180,255,0.25)'}}>{unit}</MonoLbl>}
+      </div>
+    </div>
+  );
+}
+function Fld({label, children}) {
+  return (
+    <div style={{marginBottom:10}}>
+      <label style={{fontFamily:monoFont,fontSize:9,color:T.dim,letterSpacing:1.3,textTransform:'uppercase',display:'block',marginBottom:4}}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+// ─── PAGE 1: PROJECT SETUP ────────────────────────────────────────────────
+function Page1({S, upd, derived}) {
+  const totalDC = S.modules.reduce((s,m)=>s+m.qty*m.watt/1000,0);
+  const totalAC = S.inverters.reduce((s,i)=>s+i.qty*i.rating,0);
+  const totalMods = S.modules.reduce((s,m)=>s+m.qty,0);
+  const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+  return (
+    <div>
+      <Sec color="blue">
+        <SecHdr color="blue">// PROJECT INFORMATION</SecHdr>
+        <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+          <Fld label="Project Name"><input style={inp} value={S.projectName} onChange={e=>upd('projectName',e.target.value)} placeholder="e.g. Rajasthan 1 MWp Ground Mount"/></Fld>
+          <Fld label="Engineer / Designer"><input style={inp} value={S.userName} onChange={e=>upd('userName',e.target.value)} placeholder="Your full name"/></Fld>
+          <Fld label="Site Location"><input style={inp} value={S.location} onChange={e=>upd('location',e.target.value)} placeholder="City, State / Region"/></Fld>
+          <Fld label="Date"><input style={inpRo} readOnly value={today}/></Fld>
+        </div>
+      </Sec>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12,marginBottom:18}}>
+        <StatCard label="Total DC Capacity" value={fmt(totalDC,2)} unit="kWp"/>
+        <StatCard label="Total AC Capacity" value={fmt(totalAC,1)} unit="kW" color={T.amber}/>
+        <StatCard label="DC / AC Ratio" value={totalAC>0?fmt(totalDC/totalAC,3):'—'} color={T.green}/>
+        <StatCard label="Total Modules" value={fmtI(totalMods)} unit="pcs" color={T.violet}/>
+      </div>
+      <Sec color="blue">
+        <SecHdr color="blue">// DESIGN CHECKLIST</SecHdr>
+        <div style={{padding:16}}>
+          {[
+            {label:'Project name entered', ok:S.projectName.length>0},
+            {label:'Engineer name entered', ok:S.userName.length>0},
+            {label:'Site location entered', ok:S.location.length>0},
+            {label:'Modules configured', ok:S.modules.length>0&&totalMods>0},
+            {label:'Inverters configured', ok:S.inverters.length>0&&totalAC>0},
+          ].map((item,i)=>(
+            <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid rgba(0,212,255,0.05)'}}>
+              <span style={{fontSize:13,color:T.text}}>{item.label}</span>
+              <Tag ok={item.ok} err={!item.ok}>{item.ok?'✓ PASS':'✗ FAIL'}</Tag>
+            </div>
+          ))}
+        </div>
+      </Sec>
+    </div>
+  );
+}
+
+// ─── PAGE 2: EQUIPMENT ────────────────────────────────────────────────────
+function Page2({S, setS}) {
+  const [activeModId, setActiveModId] = useState(S.modules[0]?.id||null);
+  const [activeInvId, setActiveInvId] = useState(S.inverters[0]?.id||null);
+
+  const totalDC = S.modules.reduce((s,m)=>s+m.qty*m.watt/1000,0);
+  const totalAC = S.inverters.reduce((s,i)=>s+i.qty*i.rating,0);
+  const totalMods = S.modules.reduce((s,m)=>s+m.qty,0);
+
+  const updMod = useCallback((id, field, val) => {
+    setS(prev=>({...prev,modules:prev.modules.map(m=>m.id===id?{...m,[field]:field==='name'?val:(parseFloat(val)||0)}:m)}));
+  },[setS]);
+
+  const updInv = useCallback((id, field, val) => {
+    setS(prev=>({...prev,inverters:prev.inverters.map(i=>i.id===id?{...i,[field]:field==='name'?val:(parseFloat(val)||0)}:i)}));
+  },[setS]);
+
+  const addMod = useCallback(() => {
+    setS(prev=>{
+      const id='M'+prev.modSeq;
+      setActiveModId(id);
+      return {...prev,modSeq:prev.modSeq+1,modules:[...prev.modules,{id,name:'Module Type '+prev.modSeq,watt:550,voc:49.5,vmp:41.2,isc:13.90,imp:13.35,tCoVoc:-0.27,tCoIsc:0.05,tCoPmax:-0.35,qty:100}]};
+    });
+  },[setS]);
+
+  const addInv = useCallback(() => {
+    setS(prev=>{
+      const id='I'+prev.invSeq;
+      setActiveInvId(id);
+      return {...prev,invSeq:prev.invSeq+1,inverters:[...prev.inverters,{id,name:'Inverter Type '+prev.invSeq,rating:100,maxDC:1000,mpptMin:550,mpptMax:850,mpptCount:4,maxSPM:2,outVolt:400,pf:0.99,eff:98.5,qty:1}]};
+    });
+  },[setS]);
+
+  const delMod = useCallback((id) => {
+    setS(prev=>{
+      const remaining=prev.modules.filter(m=>m.id!==id);
+      setActiveModId(remaining[0]?.id||null);
+      return {...prev,modules:remaining};
+    });
+  },[setS]);
+
+  const delInv = useCallback((id) => {
+    setS(prev=>{
+      const remaining=prev.inverters.filter(i=>i.id!==id);
+      setActiveInvId(remaining[0]?.id||null);
+      return {...prev,inverters:remaining};
+    });
+  },[setS]);
+
+  const activeM = S.modules.find(m=>m.id===activeModId)||S.modules[0];
+  const activeI = S.inverters.find(i=>i.id===activeInvId)||S.inverters[0];
+
+  const TabBtnMod = ({m}) => (
+    <div onClick={()=>setActiveModId(m.id)} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 13px',borderRadius:8,border:`1px solid ${activeModId===m.id?'rgba(251,191,36,0.4)':'rgba(251,191,36,0.1)'}`,background:activeModId===m.id?'rgba(251,191,36,0.07)':'rgba(251,191,36,0.02)',cursor:'pointer'}}>
+      <div>
+        <div style={{fontSize:12.5,fontWeight:600,color:activeModId===m.id?T.amber:'rgba(140,180,230,0.45)'}}>{m.name}</div>
+        <MonoLbl style={{fontSize:8.5,color:activeModId===m.id?'rgba(251,191,36,0.5)':'rgba(100,180,255,0.3)'}}>{m.watt}Wp · {m.qty}pcs</MonoLbl>
+      </div>
+    </div>
+  );
+  const TabBtnInv = ({i}) => (
+    <div onClick={()=>setActiveInvId(i.id)} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 13px',borderRadius:8,border:`1px solid ${activeInvId===i.id?'rgba(0,212,255,0.4)':'rgba(0,212,255,0.1)'}`,background:activeInvId===i.id?'rgba(0,212,255,0.07)':'rgba(0,212,255,0.02)',cursor:'pointer'}}>
+      <div>
+        <div style={{fontSize:12.5,fontWeight:600,color:activeInvId===i.id?T.accent:'rgba(140,180,230,0.45)'}}>{i.name}</div>
+        <MonoLbl style={{fontSize:8.5,color:activeInvId===i.id?'rgba(0,212,255,0.4)':'rgba(100,180,255,0.3)'}}>{i.rating}kW · {i.mpptCount}MPPT · {i.qty}u</MonoLbl>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10,marginBottom:18}}>
+        <StatCard label="Total DC" value={fmt(totalDC,2)} unit="kWp"/>
+        <StatCard label="Total AC" value={fmt(totalAC,1)} unit="kW" color={T.amber}/>
+        <StatCard label="DC/AC Ratio" value={totalAC>0?fmt(totalDC/totalAC,3):'—'} color={T.green}/>
+        <StatCard label="Modules" value={fmtI(totalMods)} unit="pcs" color={T.violet}/>
+      </div>
+
+      {/* MODULES */}
+      <Sec color="amber">
+        <SecHdr color="amber">// PV MODULES — ELECTRICAL PARAMETERS</SecHdr>
+        <div style={{display:'flex',gap:6,padding:'12px 18px 0',flexWrap:'wrap',alignItems:'center'}}>
+          {S.modules.map(m=><TabBtnMod key={m.id} m={m}/>)}
+          <div onClick={addMod} style={{padding:'6px 12px',borderRadius:7,border:'1px dashed rgba(251,191,36,0.22)',color:'rgba(251,191,36,0.4)',cursor:'pointer',fontSize:16,minWidth:36,textAlign:'center'}}>+</div>
+        </div>
+        {activeM&&(
+          <div style={{padding:'14px 18px 18px'}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+              <div style={{gridColumn:'1/3'}}>
+                <Fld label="Module Type Name"><input style={inpY} value={activeM.name} onChange={e=>updMod(activeM.id,'name',e.target.value)}/></Fld>
+              </div>
+              <Fld label="Quantity (pcs)"><div style={{display:'flex',gap:6}}><input type="number" style={inpY} value={activeM.qty} onChange={e=>updMod(activeM.id,'qty',e.target.value)}/><MonoLbl style={{alignSelf:'center',whiteSpace:'nowrap'}}>pcs</MonoLbl></div></Fld>
+              <div style={{gridColumn:'1/-1',borderTop:'1px solid rgba(251,191,36,0.07)',margin:'4px 0'}}/>
+              <Fld label="Rated Power (Wp)"><div style={{display:'flex',gap:6}}><input type="number" step="5" style={inpY} value={activeM.watt} onChange={e=>updMod(activeM.id,'watt',e.target.value)}/><MonoLbl style={{alignSelf:'center'}}>Wp</MonoLbl></div></Fld>
+              <Fld label="Voc (V)"><input type="number" step="0.1" style={inpY} value={activeM.voc} onChange={e=>updMod(activeM.id,'voc',e.target.value)}/></Fld>
+              <Fld label="Vmp (V)"><input type="number" step="0.1" style={inpY} value={activeM.vmp} onChange={e=>updMod(activeM.id,'vmp',e.target.value)}/></Fld>
+              <Fld label="Isc (A)"><input type="number" step="0.01" style={inpY} value={activeM.isc} onChange={e=>updMod(activeM.id,'isc',e.target.value)}/></Fld>
+              <Fld label="Imp (A)"><input type="number" step="0.01" style={inpY} value={activeM.imp} onChange={e=>updMod(activeM.id,'imp',e.target.value)}/></Fld>
+              <Fld label="Efficiency (auto)"><input style={inpRo} readOnly value={`${fmt((activeM.watt/1.96)/10,2)} %`}/></Fld>
+              <div style={{gridColumn:'1/-1',borderTop:'1px solid rgba(251,191,36,0.07)',margin:'4px 0'}}/>
+              <Fld label="Temp Coeff Voc (%/°C)"><input type="number" step="0.01" style={inpY} value={activeM.tCoVoc} onChange={e=>updMod(activeM.id,'tCoVoc',e.target.value)}/></Fld>
+              <Fld label="Temp Coeff Isc (%/°C)"><input type="number" step="0.01" style={inpY} value={activeM.tCoIsc} onChange={e=>updMod(activeM.id,'tCoIsc',e.target.value)}/></Fld>
+              <Fld label="Temp Coeff Pmax (%/°C)"><input type="number" step="0.01" style={inpY} value={activeM.tCoPmax} onChange={e=>updMod(activeM.id,'tCoPmax',e.target.value)}/></Fld>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12,padding:'9px 13px',background:'rgba(251,191,36,0.04)',border:'1px solid rgba(251,191,36,0.1)',borderRadius:8}}>
+              <div><MonoLbl style={{display:'block',marginBottom:3}}>DC contribution</MonoLbl><MonoLbl style={{fontSize:9.5,color:'rgba(200,160,60,0.5)'}}>{activeM.qty}pcs × {activeM.watt}Wp = {fmt(activeM.qty*activeM.watt/1000,3)} kWp</MonoLbl></div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <RajVal size={18} color={T.amber}>{fmt(activeM.qty*activeM.watt/1000,3)} kWp</RajVal>
+                {S.modules.length>1&&<button onClick={()=>delMod(activeM.id)} style={{background:'none',border:'1px solid rgba(239,68,68,0.2)',borderRadius:6,color:'rgba(239,68,68,0.4)',cursor:'pointer',padding:'4px 9px',fontSize:11,fontFamily:monoFont}}>✕ REMOVE</button>}
+              </div>
+            </div>
+          </div>
+        )}
+      </Sec>
+
+      {/* INVERTERS */}
+      <Sec color="blue">
+        <SecHdr color="blue">// INVERTERS — ELECTRICAL PARAMETERS</SecHdr>
+        <div style={{display:'flex',gap:6,padding:'12px 18px 0',flexWrap:'wrap',alignItems:'center'}}>
+          {S.inverters.map(i=><TabBtnInv key={i.id} i={i}/>)}
+          <div onClick={addInv} style={{padding:'6px 12px',borderRadius:7,border:'1px dashed rgba(0,212,255,0.22)',color:'rgba(0,212,255,0.4)',cursor:'pointer',fontSize:16,minWidth:36,textAlign:'center'}}>+</div>
+        </div>
+        {activeI&&(
+          <div style={{padding:'14px 18px 18px'}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+              <div style={{gridColumn:'1/3'}}>
+                <Fld label="Inverter Type Name"><input style={inp} value={activeI.name} onChange={e=>updInv(activeI.id,'name',e.target.value)}/></Fld>
+              </div>
+              <Fld label="Quantity (units)"><input type="number" style={inp} value={activeI.qty} onChange={e=>updInv(activeI.id,'qty',e.target.value)}/></Fld>
+              <div style={{gridColumn:'1/-1',borderTop:'1px solid rgba(0,212,255,0.07)',margin:'4px 0'}}/>
+              <Fld label="Rated AC Output (kW)"><input type="number" step="5" style={inp} value={activeI.rating} onChange={e=>updInv(activeI.id,'rating',e.target.value)}/></Fld>
+              <Fld label="Max DC Voltage (V)"><input type="number" step="50" style={inp} value={activeI.maxDC} onChange={e=>updInv(activeI.id,'maxDC',e.target.value)}/></Fld>
+              <Fld label="Efficiency (%)"><input type="number" step="0.1" style={inp} value={activeI.eff} onChange={e=>updInv(activeI.id,'eff',e.target.value)}/></Fld>
+              <Fld label="MPPT Voltage Min (V)"><input type="number" step="10" style={inp} value={activeI.mpptMin} onChange={e=>updInv(activeI.id,'mpptMin',e.target.value)}/></Fld>
+              <Fld label="MPPT Voltage Max (V)"><input type="number" step="10" style={inp} value={activeI.mpptMax} onChange={e=>updInv(activeI.id,'mpptMax',e.target.value)}/></Fld>
+              <Fld label="Number of MPPTs"><input type="number" step="1" style={inp} value={activeI.mpptCount} onChange={e=>updInv(activeI.id,'mpptCount',e.target.value)}/></Fld>
+              <Fld label="Max Strings / MPPT"><input type="number" step="1" style={inp} value={activeI.maxSPM} onChange={e=>updInv(activeI.id,'maxSPM',e.target.value)}/></Fld>
+              <Fld label="AC Output Voltage (V)"><input type="number" step="10" style={inp} value={activeI.outVolt} onChange={e=>updInv(activeI.id,'outVolt',e.target.value)}/></Fld>
+              <Fld label="Power Factor"><input type="number" step="0.01" min="0.8" max="1" style={inp} value={activeI.pf} onChange={e=>updInv(activeI.id,'pf',e.target.value)}/></Fld>
+              <Fld label="Output Current (auto)"><input style={inpRo} readOnly value={`${fmt((activeI.rating*1000)/(Math.sqrt(3)*activeI.outVolt*activeI.pf),2)} A/ph`}/></Fld>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12,padding:'9px 13px',background:'rgba(0,212,255,0.04)',border:'1px solid rgba(0,212,255,0.1)',borderRadius:8}}>
+              <div><MonoLbl style={{display:'block',marginBottom:3}}>AC contribution</MonoLbl><MonoLbl style={{fontSize:9.5,color:'rgba(0,180,255,0.4)'}}>{activeI.qty}u × {activeI.rating}kW = {activeI.qty*activeI.rating}kW</MonoLbl></div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <RajVal size={18}>{activeI.qty*activeI.rating}kW</RajVal>
+                {S.inverters.length>1&&<button onClick={()=>delInv(activeI.id)} style={{background:'none',border:'1px solid rgba(239,68,68,0.2)',borderRadius:6,color:'rgba(239,68,68,0.4)',cursor:'pointer',padding:'4px 9px',fontSize:11,fontFamily:monoFont}}>✕ REMOVE</button>}
+              </div>
+            </div>
+          </div>
+        )}
+      </Sec>
+    </div>
+  );
+}
+
+// ─── PAGE 3: STRING SIZING ────────────────────────────────────────────────
+function Page3({S, setS, derived}) {
+  const { combos } = derived;
+
+  const setOverride = useCallback((key, val) => {
+    setS(prev=>({...prev,stringOverrides:{...prev.stringOverrides,[key]:Math.max(1,val)}}));
+  },[setS]);
+
+  const deleteCombo = useCallback((key) => {
+    setS(prev=>({...prev,deletedCombos:[...prev.deletedCombos,key]}));
+  },[setS]);
+
+  const combosByMod = {};
+  Object.entries(combos).forEach(([key,c])=>{
+    if(!combosByMod[c.m.id]) combosByMod[c.m.id]=[];
+    combosByMod[c.m.id].push({key,c});
+  });
+
+  return (
+    <div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10,marginBottom:18}}>
+        {[
+          {lbl:'Min Ambient Temp',key:'tMin',unit:'°C — cold morning Voc risk'},
+          {lbl:'Max Cell Temp',key:'tMax',unit:'°C — NOCT + irradiance'},
+          {lbl:'Safety Margin',key:'safetyM',unit:'% — applied to max DC V'},
+        ].map(f=>(
+          <div key={f.key} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px'}}>
+            <MonoLbl style={{display:'block',marginBottom:6}}>{f.lbl}</MonoLbl>
+            <input type="number" style={inp} value={S[f.key]} onChange={e=>setS(prev=>({...prev,[f.key]:parseFloat(e.target.value)||0}))} step="1"/>
+            <MonoLbl style={{color:'rgba(100,180,255,0.22)',fontSize:8,marginTop:4,display:'block'}}>{f.unit}</MonoLbl>
+          </div>
+        ))}
+        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px'}}>
+          <MonoLbl style={{display:'block',marginBottom:6}}>STC Temperature</MonoLbl>
+          <input style={inpRo} readOnly value="25"/>
+          <MonoLbl style={{color:'rgba(100,180,255,0.22)',fontSize:8,marginTop:4,display:'block'}}>°C — standard test condition</MonoLbl>
+        </div>
+      </div>
+
+      {S.modules.map(m=>{
+        const mCombos = combosByMod[m.id]||[];
+        return (
+          <Sec key={m.id} color="amber">
+            <div style={{display:'flex',alignItems:'center',gap:10,padding:'13px 18px',borderBottom:'1px solid rgba(251,191,36,0.08)',background:'rgba(251,191,36,0.025)'}}>
+              <div>
+                <div style={{fontFamily:rajFont,fontSize:14,fontWeight:700,color:T.amber,letterSpacing:1}}>{m.name}</div>
+                <MonoLbl style={{color:'rgba(200,160,60,0.45)',fontSize:8.5}}>{m.watt}Wp · Voc {m.voc}V · Vmp {m.vmp}V · Isc {m.isc}A · Qty {m.qty}</MonoLbl>
+              </div>
+              <MonoLbl style={{marginLeft:'auto',fontSize:9,color:'rgba(200,160,60,0.35)'}}>{mCombos.length} combination{mCombos.length!==1?'s':''}</MonoLbl>
+            </div>
+            {mCombos.length===0&&<div style={{padding:24,textAlign:'center',fontFamily:monoFont,fontSize:10,color:'rgba(100,180,255,0.22)'}}>// ALL COMBINATIONS DELETED FOR THIS MODULE</div>}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12,padding:14}}>
+              {mCombos.map(({key,c})=>{
+                const sc = c.errVoc||c.errMpptLo||c.errMpptHi?'err':c.errVocSm||c.warnSPM?'warn':'ok';
+                const scaleMax = c.inv.maxDC;
+                const mpptLoP = Math.min(99,(c.inv.mpptMin/scaleMax)*100);
+                const mpptHiP = Math.min(99,(c.inv.mpptMax/scaleMax)*100);
+                const vmpP = c.N>0?Math.min(99,(c.strVmpSTC/scaleMax)*100):0;
+                const vocP = c.N>0?Math.min(98,(c.strVocCold/scaleMax)*100):0;
+                return (
+                  <div key={key} style={{background:'rgba(0,8,22,0.85)',border:`1px solid ${sc==='ok'?'rgba(0,212,255,0.25)':sc==='warn'?'rgba(251,191,36,0.3)':'rgba(239,68,68,0.25)'}`,borderRadius:10,padding:14}}>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:600,color:'#a0d0ff'}}>{c.inv.name}</div>
+                        <MonoLbl style={{fontSize:8.5}}>{c.inv.rating}kW · MaxDC {c.inv.maxDC}V · {c.inv.mpptCount}×MPPT</MonoLbl>
+                      </div>
+                      <Tag ok={sc==='ok'} warn={sc==='warn'} err={sc==='err'}>{sc==='ok'?'VALID':sc==='warn'?'WARN':'ERROR'}</Tag>
+                    </div>
+                    {/* voltage bar */}
+                    <div style={{marginBottom:10}}>
+                      <div style={{background:'rgba(255,255,255,0.04)',borderRadius:4,height:10,position:'relative',marginBottom:5}}>
+                        <div style={{position:'absolute',top:0,height:'100%',left:`${mpptLoP}%`,width:`${mpptHiP-mpptLoP}%`,background:'rgba(0,212,255,0.18)',border:'1px solid rgba(0,212,255,0.3)',borderRadius:3}}/>
+                        {c.N>0&&<div style={{position:'absolute',top:-3,width:3,height:16,background:'#10b981',borderRadius:2,transform:'translateX(-50%)',left:`${vmpP}%`}}/>}
+                        {c.N>0&&<div style={{position:'absolute',top:-3,width:3,height:16,background:'#ef4444',borderRadius:2,transform:'translateX(-50%)',left:`${vocP}%`}}/>}
+                      </div>
+                      <div style={{display:'flex',gap:10}}>
+                        {[{color:'rgba(0,212,255,0.5)',lbl:'MPPT'},{color:'#10b981',lbl:'Vmp STC'},{color:'#ef4444',lbl:'Voc cold'}].map((l,i)=>(
+                          <div key={i} style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:7,height:7,borderRadius:1,background:l.color}}/><MonoLbl style={{fontSize:8}}>{l.lbl}</MonoLbl></div>
+                        ))}
+                      </div>
+                    </div>
+                    {/* params grid */}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:5,marginBottom:10}}>
+                      {[
+                        {lbl:'SUGGESTED',val:c.sugN||'—',color:'rgba(140,180,230,0.45)'},
+                        {lbl:'RANGE',val:`${c.minAllow}–${c.maxAllow}`,color:'#a0c8f0'},
+                        {lbl:'TOTAL STR',val:c.totalStrings||'—',color:T.amber},
+                        {lbl:'STR/INV',val:c.strPerInv||'—',color:T.accent},
+                        {lbl:'STR/MPPT',val:c.strPerMppt||'—',color:c.warnSPM?T.amber:T.green},
+                        {lbl:'VOC COLD',val:c.N>0?fmt(c.strVocCold,1):'—',color:c.errVoc?'#ef4444':T.amber},
+                      ].map((item,i)=>(
+                        <div key={i} style={{background:'rgba(0,212,255,0.04)',border:'1px solid rgba(0,212,255,0.08)',borderRadius:6,padding:'6px 9px'}}>
+                          <MonoLbl style={{fontSize:8,display:'block',marginBottom:2}}>{item.lbl}</MonoLbl>
+                          <RajVal size={14} color={item.color}>{item.val}</RajVal>
+                        </div>
+                      ))}
+                    </div>
+                    {/* override */}
+                    <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 11px',background:'rgba(0,212,255,0.04)',border:'1px solid rgba(0,212,255,0.1)',borderRadius:8,marginBottom:8}}>
+                      <div style={{flex:1}}>
+                        <MonoLbl style={{display:'block',fontSize:9.5}}>MODULES / STRING</MonoLbl>
+                        <MonoLbl style={{fontSize:8,color:'rgba(100,180,255,0.25)'}}>OVERRIDE SUGGESTED VALUE</MonoLbl>
+                      </div>
+                      <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                        <button onClick={()=>setOverride(key,(S.stringOverrides[key]??c.sugN)+1)} style={{width:22,height:18,background:'rgba(0,212,255,0.05)',border:'1px solid rgba(0,212,255,0.14)',borderRadius:4,color:T.accent,cursor:'pointer',fontSize:10,display:'flex',alignItems:'center',justifyContent:'center'}}>▲</button>
+                        <button onClick={()=>setOverride(key,(S.stringOverrides[key]??c.sugN)-1)} style={{width:22,height:18,background:'rgba(0,212,255,0.05)',border:'1px solid rgba(0,212,255,0.14)',borderRadius:4,color:T.accent,cursor:'pointer',fontSize:10,display:'flex',alignItems:'center',justifyContent:'center'}}>▼</button>
+                      </div>
+                      <input type="number" value={c.N} min="1"
+                        onChange={e=>setOverride(key,parseInt(e.target.value)||1)}
+                        style={{width:52,padding:'5px 8px',background:'rgba(0,212,255,0.08)',border:'1px solid rgba(0,212,255,0.25)',borderRadius:6,color:T.accent,fontFamily:rajFont,fontSize:16,fontWeight:700,textAlign:'center',outline:'none'}}/>
+                    </div>
+                    <button onClick={()=>deleteCombo(key)} style={{width:'100%',padding:5,background:'transparent',border:'1px solid rgba(239,68,68,0.15)',borderRadius:6,color:'rgba(239,68,68,0.35)',cursor:'pointer',fontFamily:monoFont,fontSize:9,letterSpacing:1}}>
+                      ✕ REMOVE THIS COMBINATION
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </Sec>
+        );
+      })}
+
+      {/* PER INVERTER UNIT — STRING DETAIL CARD */}
+      {Object.keys(combos).length > 0 && (
+        <Sec color="blue">
+          <SecHdr color="blue">// PER INVERTER UNIT — STRING DETAIL · For DC SLD Reference</SecHdr>
+          <div style={{padding:14}}>
+            <div style={{padding:'8px 14px',background:'rgba(0,212,255,0.04)',border:'1px solid rgba(0,212,255,0.08)',borderRadius:8,marginBottom:14,fontFamily:monoFont,fontSize:9,color:'rgba(100,180,255,0.5)',letterSpacing:.8}}>
+              Each inverter unit can have multiple string configurations (different N per MPPT group) · Click "+ Config" to add · Total modules = sum of all configs · Used for DC SLD
+            </div>
+            {Object.entries(combos).map(([key,c])=>{
+              const units = Array.from({length:c.inv.qty},(_,i)=>i+1);
+              const defaultStrPerUnit = Math.ceil(c.totalStrings/c.inv.qty);
+
+              // Get configs for a unit — array of {N, strings}
+              // State key: unitConfigs[`${key}_${u}`] = [{N, strings}, ...]
+              const getConfigs = (u) => {
+                const uk = `${key}_${u}`;
+                const stored = S.unitConfigs?.[uk];
+                if(stored && stored.length>0) return stored;
+                return [{N: S.unitStringN?.[uk] ?? c.N, strings: S.unitStringCount?.[uk] ?? defaultStrPerUnit}];
+              };
+
+              const setConfigs = (u, configs) => {
+                const uk = `${key}_${u}`;
+                setS(prev=>({...prev, unitConfigs:{...(prev.unitConfigs||{}), [uk]: configs}}));
+              };
+
+              const addConfig = (u) => {
+                const configs = getConfigs(u);
+                setConfigs(u, [...configs, {N: c.N, strings: 1}]);
+              };
+
+              const removeConfig = (u, ci) => {
+                const configs = getConfigs(u);
+                if(configs.length <= 1) return;
+                setConfigs(u, configs.filter((_,i)=>i!==ci));
+              };
+
+              const updateConfig = (u, ci, field, val) => {
+                const configs = getConfigs(u);
+                setConfigs(u, configs.map((cfg,i)=>i===ci?{...cfg,[field]:Math.max(1,parseInt(val)||1)}:cfg));
+              };
+
+              // compute per-unit totals
+              const unitData = units.map(u=>{
+                const configs = getConfigs(u);
+                const unitMods = configs.reduce((s,cfg)=>s+cfg.N*cfg.strings, 0);
+                const unitStrs = configs.reduce((s,cfg)=>s+cfg.strings, 0);
+                const allNOk   = configs.every(cfg=>cfg.N>=c.minAllow && cfg.N<=c.maxAllow);
+                return {u, configs, unitMods, unitStrs, allNOk};
+              });
+
+              const totalMods = unitData.reduce((s,r)=>s+r.unitMods, 0);
+              const totalStr  = unitData.reduce((s,r)=>s+r.unitStrs, 0);
+              const modMatch  = totalMods === c.m.qty;
+
+              return (
+                <div key={key} style={{border:'1px solid rgba(0,212,255,0.1)',borderRadius:10,overflow:'hidden',marginBottom:12}}>
+                  {/* combo header */}
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:'rgba(0,212,255,0.025)',borderBottom:'1px solid rgba(0,212,255,0.07)'}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:'#a0d0ff'}}>{c.m.name} × {c.inv.name}</div>
+                      <MonoLbl style={{fontSize:8.5}}>N={c.N} · {c.totalStrings} total strings · {c.inv.qty} units · {c.inv.mpptCount} MPPTs/unit</MonoLbl>
+                    </div>
+                    <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                      <div style={{textAlign:'right'}}>
+                        <MonoLbl style={{display:'block',fontSize:8}}>TOTAL MODULES</MonoLbl>
+                        <RajVal size={15} color={modMatch?T.green:T.amber}>{totalMods} / {c.m.qty}</RajVal>
+                      </div>
+                      {modMatch?<Tag ok>MATCH</Tag>:<Tag warn>MISMATCH</Tag>}
+                    </div>
+                  </div>
+
+                  {/* per-unit rows */}
+                  {unitData.map(({u, configs, unitMods, unitStrs, allNOk})=>(
+                    <div key={u} style={{borderBottom:'1px solid rgba(0,212,255,0.05)',background:u%2===0?'rgba(0,212,255,0.01)':'rgba(0,6,18,0.5)'}}>
+
+                      {/* unit header row */}
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 14px',borderBottom:'1px solid rgba(0,212,255,0.04)',background:'rgba(0,212,255,0.03)'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:10}}>
+                          <MonoLbl style={{fontSize:10,color:'rgba(140,180,230,0.6)',minWidth:70}}>
+                            {c.inv.name.split(' ').pop()} #{u}
+                          </MonoLbl>
+                          <div style={{display:'flex',gap:12}}>
+                            <div>
+                              <MonoLbl style={{fontSize:7.5,display:'block'}}>TOTAL STRINGS</MonoLbl>
+                              <RajVal size={13} color={T.accent}>{unitStrs}</RajVal>
+                            </div>
+                            <div>
+                              <MonoLbl style={{fontSize:7.5,display:'block'}}>TOTAL MODS</MonoLbl>
+                              <RajVal size={13} color={T.violet}>{unitMods}</RajVal>
+                            </div>
+                            <div>
+                              <MonoLbl style={{fontSize:7.5,display:'block'}}>STR/MPPT (avg)</MonoLbl>
+                              <RajVal size={13} color={T.green}>{c.inv.mpptCount>0?(unitStrs/c.inv.mpptCount).toFixed(1):'—'}</RajVal>
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                          {allNOk?<Tag ok>OK</Tag>:<Tag warn>CHECK N</Tag>}
+                          <button onClick={()=>addConfig(u)}
+                            style={{padding:'4px 10px',background:'transparent',border:'1px solid rgba(0,212,255,0.25)',
+                              borderRadius:5,color:T.accent,cursor:'pointer',fontFamily:monoFont,
+                              fontSize:9,letterSpacing:.8,transition:'all .2s'}}
+                            onMouseOver={e=>{e.currentTarget.style.background='rgba(0,212,255,0.08)'}}
+                            onMouseOut={e=>{e.currentTarget.style.background='transparent'}}>
+                            + CONFIG
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* config sub-rows */}
+                      {configs.length > 0 && (
+                        <div>
+                          {/* sub-header */}
+                          <div style={{display:'grid',gridTemplateColumns:'80px 1fr 1fr 1fr 1fr 40px',
+                            padding:'4px 14px 4px 28px',background:'rgba(0,0,0,0.15)',
+                            borderBottom:'1px solid rgba(0,212,255,0.04)'}}>
+                            {['CONFIG','MODS / STRING','NO. OF STRINGS','TOTAL MODS','STR / MPPT',''].map((h,i)=>(
+                              <MonoLbl key={i} style={{fontSize:7.5,color:'rgba(100,180,255,0.3)',letterSpacing:.6}}>{h}</MonoLbl>
+                            ))}
+                          </div>
+                          {configs.map((cfg,ci)=>{
+                            const cfgMods = cfg.N * cfg.strings;
+                            const cfgStrPerMppt = c.inv.mpptCount>0?(cfg.strings/c.inv.mpptCount).toFixed(1):'—';
+                            const nOk = cfg.N>=c.minAllow && cfg.N<=c.maxAllow;
+                            return (
+                              <div key={ci} style={{display:'grid',gridTemplateColumns:'80px 1fr 1fr 1fr 1fr 40px',
+                                padding:'7px 14px 7px 28px',alignItems:'center',
+                                borderBottom:'1px solid rgba(0,212,255,0.03)',
+                                background:ci%2===0?'rgba(0,212,255,0.008)':'transparent'}}>
+                                {/* config label */}
+                                <MonoLbl style={{fontSize:9,color:'rgba(100,180,255,0.4)'}}>
+                                  CFG {ci+1}
+                                  {configs.length>1&&<span style={{color:'rgba(100,180,255,0.2)',fontSize:8}}> / {configs.length}</span>}
+                                </MonoLbl>
+                                {/* N input */}
+                                <div>
+                                  <input type="number" min="1" value={cfg.N}
+                                    onChange={e=>updateConfig(u,ci,'N',e.target.value)}
+                                    style={{width:58,padding:'5px 7px',
+                                      background:nOk?'rgba(0,212,255,0.06)':'rgba(251,191,36,0.08)',
+                                      border:`1px solid ${nOk?'rgba(0,212,255,0.22)':'rgba(251,191,36,0.35)'}`,
+                                      borderRadius:6,color:nOk?T.accent:T.amber,
+                                      fontFamily:rajFont,fontSize:14,fontWeight:700,textAlign:'center',outline:'none'}}/>
+                                  {!nOk&&<MonoLbl style={{display:'block',fontSize:7,color:T.amber,marginTop:1}}>
+                                    {c.minAllow}–{c.maxAllow}
+                                  </MonoLbl>}
+                                </div>
+                                {/* strings input */}
+                                <input type="number" min="1" value={cfg.strings}
+                                  onChange={e=>updateConfig(u,ci,'strings',e.target.value)}
+                                  style={{width:58,padding:'5px 7px',
+                                    background:'rgba(251,191,36,0.06)',
+                                    border:'1px solid rgba(251,191,36,0.22)',
+                                    borderRadius:6,color:T.amber,
+                                    fontFamily:rajFont,fontSize:14,fontWeight:700,textAlign:'center',outline:'none'}}/>
+                                {/* total mods */}
+                                <RajVal size={14} color={T.violet}>{cfgMods}</RajVal>
+                                {/* str/mppt */}
+                                <RajVal size={13} color={T.green}>{cfgStrPerMppt}</RajVal>
+                                {/* remove config button */}
+                                <div>
+                                  {configs.length>1&&(
+                                    <button onClick={()=>removeConfig(u,ci)}
+                                      style={{background:'none',border:'1px solid rgba(239,68,68,0.2)',borderRadius:4,
+                                        color:'rgba(239,68,68,0.4)',cursor:'pointer',fontSize:11,lineHeight:1,
+                                        width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',
+                                        transition:'all .2s'}}
+                                      onMouseOver={e=>{e.currentTarget.style.background='rgba(239,68,68,0.08)';e.currentTarget.style.borderColor='rgba(239,68,68,0.5)'}}
+                                      onMouseOut={e=>{e.currentTarget.style.background='none';e.currentTarget.style.borderColor='rgba(239,68,68,0.2)'}}>
+                                      ×
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {/* combo summary */}
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,padding:'10px 14px',
+                    background:'rgba(0,0,0,0.2)',borderTop:'1px solid rgba(0,212,255,0.07)'}}>
+                    {[
+                      {lbl:'TOTAL STRINGS (all units)',      val:totalStr,  c:T.accent},
+                      {lbl:'TOTAL MODULES ASSIGNED',         val:totalMods, c:modMatch?T.green:T.amber},
+                      {lbl:'MODULE QTY (EQUIPMENT)',         val:c.m.qty,   c:T.muted},
+                    ].map((item,i)=>(
+                      <div key={i} style={{background:'rgba(0,212,255,0.04)',border:'1px solid rgba(0,212,255,0.07)',borderRadius:7,padding:'8px 12px'}}>
+                        <MonoLbl style={{display:'block',fontSize:8,marginBottom:3}}>{item.lbl}</MonoLbl>
+                        <RajVal size={16} color={item.c}>{item.val}</RajVal>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Sec>
+      )}
+
+    </div>
+  );
+}
+
+// ─── PAGE 4: CABLE SIZING ────────────────────────────────────────────────
+function Page4({S, setS, derived}) {
+  const { tf, gf, acdbCalcs } = derived;
+  const [openDD, setOpenDD] = useState(null);
+
+  const getACSt   = (id)  => S.acInvCableState[id] || {len:50, vdMax:1.5, sel:null};
+  const getACDBSt = (id)  => S.acdbCableState[id]  || {sqmm:null, runs:1, len:80, vdMax:1.5};
+
+  const setACSt   = useCallback((id,patch)=>setS(prev=>({...prev,acInvCableState:{...prev.acInvCableState,[id]:{...(prev.acInvCableState[id]||{len:50,vdMax:1.5,sel:null}),...patch}}})),[setS]);
+  const setACDBSt = useCallback((id,patch)=>setS(prev=>({...prev,acdbCableState:{...prev.acdbCableState,[id]:{...(prev.acdbCableState[id]||{sqmm:null,runs:1,len:80,vdMax:1.5}),...patch}}})),[setS]);
+
+  // Inverter pool for ACDB
+  const invUnits = [];
+  S.inverters.forEach(inv=>{ for(let i=1;i<=inv.qty;i++) invUnits.push({uid:`${inv.id}_${i}`,name:`${inv.name} #${i}`,displayName:inv.name,unit:i,inv}); });
+  const assignedSet = new Set();
+  S.acdbs.forEach(a=>(a.inverters||[]).forEach(uid=>assignedSet.add(uid)));
+  const unassigned = invUnits.filter(u=>!assignedSet.has(u.uid));
+
+  const addACDB     = useCallback(()=>setS(prev=>{const seq=prev.acdbSeq+1;const id=`ACDB_${seq}`;return{...prev,acdbSeq:seq,acdbs:[...prev.acdbs,{id,name:`ACDB ${prev.acdbs.length+1}`,inverters:[]}]};}), [setS]);
+  const delACDB     = useCallback((id)=>setS(prev=>({...prev,acdbs:prev.acdbs.filter(a=>a.id!==id)})),[setS]);
+  const assignInv   = useCallback((acdbId,uid)=>setS(prev=>({...prev,acdbs:prev.acdbs.map(a=>a.id===acdbId?{...a,inverters:[...(a.inverters||[]),uid]}:a)})),[setS]);
+  const unassignInv = useCallback((uid)=>setS(prev=>({...prev,acdbs:prev.acdbs.map(a=>({...a,inverters:(a.inverters||[]).filter(u=>u!==uid)}))})),[setS]);
+  const renameACDB  = useCallback((id,name)=>setS(prev=>({...prev,acdbs:prev.acdbs.map(a=>a.id===id?{...a,name}:a)})),[setS]);
+
+  // Find cable option
+  const findACOpt = (designI, len, outVolt, vdMax, requireVD) => {
+    for(const c of AC_CABLES){
+      const derated = getBase(c.sqmm, S.acMat, S.acInst)*tf*gf;
+      if(derated < designI) continue;
+      const {vdPct} = acVD(c.sqmm, designI/1.25, len, outVolt);
+      if(!requireVD || vdPct <= vdMax) return {c, derated, ...acVD(c.sqmm, designI/1.25, len, outVolt)};
+    }
+    return null;
+  };
+
+  // ACDB cable suggestion
+  const suggestACDB = (designI) => {
+    for(const c of AC_CABLES){
+      const derated = getBase(c.sqmm, S.acMat, S.acInst)*tf*gf;
+      if(derated <= 0) continue;
+      const runs = Math.min(3, Math.ceil(designI/derated));
+      const iPerRun = designI/runs;
+      if(derated >= iPerRun) return {sqmm:c.sqmm, runs};
+    }
+    return {sqmm:AC_CABLES[AC_CABLES.length-1].sqmm, runs:1};
+  };
+
+  return (
+    <div>
+
+      {/* ── GLOBAL DERATING PARAMETERS ── */}
+      <Sec color="blue">
+        <SecHdr color="blue">// CABLE INSTALLATION &amp; DERATING PARAMETERS</SecHdr>
+        <div style={{padding:16, display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10}}>
+          <Fld label="Conductor Material">
+            <select style={inp} value={S.acMat} onChange={e=>setS(prev=>({...prev,acMat:e.target.value}))}>
+              <option value="copper">Copper</option><option value="aluminium">Aluminium</option>
+            </select>
+          </Fld>
+          <Fld label="Installation Method">
+            <select style={inp} value={S.acInst} onChange={e=>setS(prev=>({...prev,acInst:e.target.value}))}>
+              <option value="ground">Ground</option><option value="duct">Duct/Conduit</option><option value="air">Air (open)</option>
+            </select>
+          </Fld>
+          <Fld label="Ambient Temperature (°C)">
+            <input type="number" style={inp} value={S.acTemp} onChange={e=>setS(prev=>({...prev,acTemp:parseFloat(e.target.value)||40}))}/>
+          </Fld>
+          <Fld label="Temp Derating Factor">
+            <input style={inpRo} readOnly value={fmt(tf,2)}/>
+          </Fld>
+          <Fld label="Cable Tray Type">
+            <select style={inp} value={S.acTray} onChange={e=>setS(prev=>({...prev,acTray:e.target.value}))}>
+              <option value="perforated">Perforated</option><option value="ladder">Ladder</option>
+            </select>
+          </Fld>
+          <Fld label="Number of Trays">
+            <select style={inp} value={S.acLayers} onChange={e=>setS(prev=>({...prev,acLayers:parseInt(e.target.value)}))}>
+              <option value={1}>1 Tray</option><option value={2}>2 Trays</option><option value={3}>3 Trays</option>
+            </select>
+          </Fld>
+          <Fld label="Cables per Tray">
+            <select style={inp} value={S.acCpt} onChange={e=>setS(prev=>({...prev,acCpt:parseInt(e.target.value)}))}>
+              <option value={0}>1</option><option value={1}>2–3</option><option value={2}>3–4</option>
+              <option value={3}>4–5</option><option value={4}>6</option><option value={5}>7–9</option>
+            </select>
+          </Fld>
+          <Fld label="Grouping Factor">
+            <input style={inpRo} readOnly value={fmt(gf,2)}/>
+          </Fld>
+        </div>
+        {/* derating chain visual */}
+        <div style={{margin:'0 16px 16px', padding:'9px 14px', background:'rgba(0,212,255,0.03)', border:'1px solid rgba(0,212,255,0.06)', borderRadius:8, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap'}}>
+          {[
+            {lbl:'BASE AMP'}, {op:'×'},
+            {lbl:'TEMP FACTOR', val:fmt(tf,2)}, {op:'×'},
+            {lbl:'GROUP FACTOR', val:fmt(gf,2)}, {op:'='},
+            {lbl:'DERATED / CABLE', result:true}
+          ].map((item,i)=>{
+            if(item.op) return <div key={i} style={{fontFamily:rajFont, fontSize:16, color:'rgba(100,180,255,0.18)'}}>{item.op}</div>;
+            return (
+              <div key={i} style={{display:'flex', flexDirection:'column', alignItems:'center', gap:1,
+                background:item.result?'rgba(16,185,129,0.07)':'transparent',
+                border:item.result?'1px solid rgba(16,185,129,0.18)':'none',
+                borderRadius:item.result?6:0, padding:item.result?'4px 10px':0}}>
+                <RajVal size={16} color={item.result?T.green:T.accent}>{item.val||'—'}</RajVal>
+                <MonoLbl style={{fontSize:7, textAlign:'center', lineHeight:1.4}}>{item.lbl}</MonoLbl>
+              </div>
+            );
+          })}
+        </div>
+      </Sec>
+
+      {/* ── ONE CARD PER INVERTER TYPE ── */}
+      {S.inverters.map(inv=>{
+        const st       = getACSt(inv.id);
+        const rawI     = (inv.rating*1000)/(Math.sqrt(3)*inv.outVolt*inv.pf);
+        const designI  = rawI*1.25;
+        const opt1     = findACOpt(designI, st.len, inv.outVolt, st.vdMax, false);
+        const opt2     = findACOpt(designI, st.len, inv.outVolt, st.vdMax, true);
+        const sameBoth = opt1&&opt2&&opt1.c.sqmm===opt2.c.sqmm;
+
+        // selected cable sqmm — fallback to opt2 then opt1
+        const selSqmm  = st.sel || opt2?.c.sqmm || opt1?.c.sqmm || null;
+
+        // build per-unit rows
+        const unitRows = Array.from({length:inv.qty},(_,i)=>{
+          const u   = i+1;
+          const uk  = `${inv.id}_${u}`;
+          const len = S.unitCableLen[uk] ?? st.len ?? 50;
+          const vdR = selSqmm ? acVD(selSqmm, rawI, len, inv.outVolt) : {vdV:0,vdPct:0,plossW:0};
+          return {u, uk, len, ...vdR, vdOk: vdR.vdPct<=(st.vdMax||1.5)};
+        });
+
+        const totalLoss  = unitRows.reduce((s,r)=>s+r.plossW,0)/1000;
+        const avgVD      = unitRows.length>0 ? unitRows.reduce((s,r)=>s+r.vdPct,0)/unitRows.length : 0;
+        const worstRow   = unitRows.length>0 ? unitRows.reduce((a,b)=>a.vdPct>b.vdPct?a:b) : null;
+        const allUnitsOk = unitRows.every(r=>r.vdOk);
+
+        return (
+          <Sec key={inv.id} color="blue">
+            {/* Card header */}
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'13px 18px',
+              borderBottom:'1px solid rgba(0,212,255,0.08)', background:'rgba(0,212,255,0.025)'}}>
+              <div>
+                <div style={{fontFamily:rajFont, fontSize:15, fontWeight:700, color:'#fff', letterSpacing:1}}>{inv.name}</div>
+                <MonoLbl style={{fontSize:8.5}}>
+                  {inv.rating}kW · {inv.outVolt}V L-L · PF {inv.pf} · {inv.qty} units · Raw I = {fmt(rawI,2)}A · Design I = {fmt(designI,2)}A (×1.25)
+                </MonoLbl>
+              </div>
+              {allUnitsOk ? <Tag ok>✓ ALL UNITS OK</Tag> : <Tag warn>⚠ CHECK VD</Tag>}
+            </div>
+
+            <div style={{padding:'14px 18px 18px'}}>
+
+              {/* ── Cable selection inputs + Opt1 / Opt2 ── */}
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:14}}>
+                <Fld label="Default Cable Length (m)">
+                  <input type="number" style={inp} value={st.len}
+                    onChange={e=>setACSt(inv.id,{len:parseFloat(e.target.value)||1})}/>
+                  <MonoLbl style={{color:'rgba(100,180,255,0.22)',fontSize:8,marginTop:2}}>used as default for all units below</MonoLbl>
+                </Fld>
+                <Fld label="Max Voltage Drop %">
+                  <input type="number" step="0.25" style={inp} value={st.vdMax}
+                    onChange={e=>setACSt(inv.id,{vdMax:parseFloat(e.target.value)||1})}/>
+                  <MonoLbl style={{color:'rgba(100,180,255,0.22)',fontSize:8,marginTop:2}}>% of {inv.outVolt}V line voltage</MonoLbl>
+                </Fld>
+                <Fld label="Design Current">
+                  <input style={inpRo} readOnly value={`${fmt(designI,2)} A`}/>
+                  <MonoLbl style={{color:'rgba(100,180,255,0.22)',fontSize:8,marginTop:2}}>3-phase · Irated × 1.25</MonoLbl>
+                </Fld>
+              </div>
+
+              {/* Opt1 / Opt2 cable cards */}
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:18}}>
+                {[
+                  {res:opt1, label:'OPT 1 · AMPACITY',    bc:'rgba(0,212,255,',  gc:T.accent},
+                  {res:opt2, label:`OPT 2 · AMP + VD${sameBoth?' · SAME':''}`, bc:'rgba(16,185,129,', gc:T.green}
+                ].map(({res,label,bc,gc}, oi)=>{
+                  if(!res) return (
+                    <div key={oi} style={{border:'1px solid rgba(239,68,68,0.15)',borderRadius:9,padding:16,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                      <MonoLbl style={{color:'rgba(239,68,68,0.45)'}}>No valid cable found — reduce length or increase VD%</MonoLbl>
+                    </div>
+                  );
+                  const isSel = st.sel===res.c.sqmm;
+                  const vdOk  = res.vdPct<=st.vdMax;
+                  return (
+                    <div key={oi} onClick={()=>setACSt(inv.id,{sel:res.c.sqmm})}
+                      style={{border:`1px solid ${isSel?bc+'0.55)':'rgba(0,212,255,0.1)'}`,
+                        background:isSel?bc+'0.06)':'rgba(0,6,18,0.85)',
+                        borderRadius:9, padding:'14px 16px', cursor:'pointer', transition:'all .2s'}}>
+                      <div style={{marginBottom:10}}>
+                        <span style={{fontFamily:monoFont,fontSize:8,padding:'2px 9px',borderRadius:3,
+                          background:bc+'0.1)',border:`1px solid ${bc}0.2)`,color:gc,letterSpacing:1}}>{label}</span>
+                      </div>
+                      <RajVal size={28} color={gc} style={{display:'block', marginBottom:10}}>{res.c.sqmm} mm²</RajVal>
+                      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:6}}>
+                        {[
+                          {l:'DERATED CAPACITY', v:`${fmt(res.derated,1)}A`, c:res.derated>=designI?T.green:'#ef4444'},
+                          {l:'DESIGN CURRENT',   v:`${fmt(designI,2)}A`,    c:T.accent},
+                          {l:'VOLTAGE DROP',     v:`${fmt(res.vdV,2)}V`,    c:vdOk?T.green:T.amber},
+                          {l:`VD % / ${st.vdMax}% LIMIT`, v:`${fmt(res.vdPct,2)}%`, c:vdOk?T.green:T.amber},
+                        ].map((item,ii)=>(
+                          <div key={ii} style={{background:'rgba(0,0,0,0.2)',borderRadius:6,padding:'7px 10px'}}>
+                            <MonoLbl style={{display:'block',fontSize:8,marginBottom:2}}>{item.l}</MonoLbl>
+                            <RajVal size={14} color={item.c}>{item.v}</RajVal>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{marginTop:10, padding:6, border:`1px solid ${isSel?bc+'0.5)':'rgba(0,212,255,0.12)'}`,
+                        borderRadius:6, textAlign:'center', fontFamily:monoFont, fontSize:9,
+                        color:isSel?gc:'rgba(0,212,255,0.3)', background:isSel?bc+'0.07)':'transparent'}}>
+                        {isSel?'✓ SELECTED':'CLICK TO SELECT'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── PER UNIT TABLE ── */}
+              {selSqmm && (
+                <div>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                    <MonoLbl style={{fontSize:9, color:T.accent, letterSpacing:1.2}}>
+                      // PER UNIT CABLE LENGTHS — {selSqmm}mm² CABLE SELECTED
+                    </MonoLbl>
+                    <MonoLbl style={{fontSize:8.5, color:'rgba(100,180,255,0.35)'}}>
+                      Edit length per unit · VD &amp; loss recalculate instantly
+                    </MonoLbl>
+                  </div>
+
+                  {/* Table header */}
+                  <div style={{display:'grid', gridTemplateColumns:'140px 100px 100px 120px 120px 90px 70px',
+                    padding:'7px 14px', background:'rgba(0,0,0,0.3)', borderRadius:'8px 8px 0 0',
+                    border:'1px solid rgba(0,212,255,0.1)', borderBottom:'1px solid rgba(0,212,255,0.12)'}}>
+                    {['INVERTER','CAPACITY (kW)','CABLE TYPE','LENGTH (m)','VOLTAGE DROP','POWER LOSS','STATUS'].map((h,i)=>(
+                      <MonoLbl key={i} style={{fontSize:8, letterSpacing:.7, color:'rgba(100,180,255,0.4)'}}>{h}</MonoLbl>
+                    ))}
+                  </div>
+
+                  {/* Unit rows */}
+                  <div style={{border:'1px solid rgba(0,212,255,0.1)', borderTop:'none', borderRadius:'0 0 8px 8px', overflow:'hidden'}}>
+                    {unitRows.map(({u,uk,len,vdV,vdPct,plossW,vdOk})=>(
+                      <div key={u} style={{display:'grid', gridTemplateColumns:'140px 100px 100px 120px 120px 90px 70px',
+                        padding:'9px 14px', borderBottom:'1px solid rgba(0,212,255,0.05)',
+                        alignItems:'center', background:u%2===0?'rgba(0,212,255,0.015)':'rgba(0,6,18,0.6)',
+                        transition:'background .15s'}}>
+                        {/* Inverter name */}
+                        <div>
+                          <div style={{fontSize:12, fontWeight:600, color:'#a0d0ff'}}>{inv.name.split(' ').slice(-1)[0]} #{u}</div>
+                          <MonoLbl style={{fontSize:8}}>{inv.outVolt}V · PF {inv.pf}</MonoLbl>
+                        </div>
+                        {/* Capacity */}
+                        <RajVal size={14} color={T.amber}>{inv.rating} kW</RajVal>
+                        {/* Cable type */}
+                        <div style={{fontFamily:monoFont, fontSize:10, color:T.accent,
+                          background:'rgba(0,212,255,0.07)', border:'1px solid rgba(0,212,255,0.15)',
+                          padding:'3px 8px', borderRadius:5, display:'inline-block'}}>
+                          {selSqmm} mm²
+                        </div>
+                        {/* Length input */}
+                        <input type="number" min="1" value={len}
+                          onChange={e=>setS(prev=>({...prev,unitCableLen:{...prev.unitCableLen,[uk]:parseFloat(e.target.value)||1}}))}
+                          style={{width:80, padding:'6px 9px', background:'rgba(0,212,255,0.05)',
+                            border:'1px solid rgba(0,212,255,0.2)', borderRadius:6,
+                            color:T.accent, fontFamily:rajFont, fontSize:15, fontWeight:700,
+                            textAlign:'center', outline:'none'}}/>
+                        {/* Voltage drop */}
+                        <div>
+                          <RajVal size={14} color={vdOk?T.green:T.amber}>{fmt(vdV,2)}V</RajVal>
+                          <div style={{fontFamily:monoFont, fontSize:9, color:vdOk?'rgba(16,185,129,0.6)':'rgba(251,191,36,0.6)', marginTop:1}}>
+                            {fmt(vdPct,2)}%
+                          </div>
+                        </div>
+                        {/* Power loss */}
+                        <RajVal size={14} color={T.amber}>{fmt(plossW,1)}W</RajVal>
+                        {/* Status */}
+                        <div>{vdOk?<Tag ok>OK</Tag>:<Tag warn>OVER</Tag>}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Summary bar */}
+                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:8, marginTop:10}}>
+                    {[
+                      {lbl:'TOTAL POWER LOSS', val:`${fmt(totalLoss,3)} kW`, c:T.amber},
+                      {lbl:'AVERAGE VD %',      val:`${fmt(avgVD,2)}%`,       c:avgVD<=(st.vdMax||1.5)?T.green:T.amber},
+                      {lbl:`WORST VD (Unit #${worstRow?.u||'—'})`, val:worstRow?`${fmt(worstRow.vdPct,2)}%`:'—', c:worstRow?.vdOk?T.green:'#ef4444'},
+                      {lbl:'CABLE SIZE USED',   val:`${selSqmm} mm²`,         c:T.accent},
+                    ].map((item,i)=>(
+                      <div key={i} style={{background:'rgba(0,0,0,0.25)', border:'1px solid rgba(0,212,255,0.08)',
+                        borderRadius:8, padding:'10px 14px'}}>
+                        <MonoLbl style={{display:'block', fontSize:8, marginBottom:4}}>{item.lbl}</MonoLbl>
+                        <RajVal size={16} color={item.c}>{item.val}</RajVal>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!selSqmm && (
+                <div style={{padding:'18px', textAlign:'center', fontFamily:monoFont, fontSize:10,
+                  color:'rgba(100,180,255,0.25)', border:'1px dashed rgba(0,212,255,0.1)', borderRadius:8}}>
+                  // SELECT A CABLE OPTION ABOVE TO SEE PER-UNIT TABLE
+                </div>
+              )}
+
+            </div>
+          </Sec>
+        );
+      })}
+
+      {/* ── OVERALL SUMMARY ACROSS ALL INVERTER TYPES ── */}
+      {S.inverters.length > 0 && (() => {
+        let grandLoss = 0;
+        let grandRows = [];
+        S.inverters.forEach(inv=>{
+          const st      = getACSt(inv.id);
+          const rawI    = (inv.rating*1000)/(Math.sqrt(3)*inv.outVolt*inv.pf);
+          const selSqmm = st.sel || null;
+          if(!selSqmm) return;
+          for(let u=1; u<=inv.qty; u++){
+            const uk  = `${inv.id}_${u}`;
+            const len = S.unitCableLen[uk] ?? st.len ?? 50;
+            const {vdPct, plossW} = acVD(selSqmm, rawI, len, inv.outVolt);
+            grandLoss += plossW;
+            grandRows.push({invName:inv.name, u, len, vdPct, plossW, vdOk: vdPct<=(st.vdMax||1.5)});
+          }
+        });
+        if(grandRows.length===0) return null;
+        const overallWorst = grandRows.reduce((a,b)=>a.vdPct>b.vdPct?a:b);
+        const overallAvg   = grandRows.reduce((s,r)=>s+r.vdPct,0)/grandRows.length;
+        const allOk        = grandRows.every(r=>r.vdOk);
+        return (
+          <Sec color="blue" key="overall-summary">
+            <SecHdr color="blue">// OVERALL AC CABLE SUMMARY — ALL INVERTER TYPES &amp; UNITS</SecHdr>
+            <div style={{padding:'14px 18px'}}>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12}}>
+                {[
+                  {lbl:'TOTAL INVERTER UNITS',    val:grandRows.length,             c:T.accent},
+                  {lbl:'TOTAL AC CABLE LOSS',     val:`${fmt(grandLoss/1000,3)} kW`, c:T.amber},
+                  {lbl:'AVERAGE VD % (all units)',val:`${fmt(overallAvg,2)}%`,       c:T.green},
+                  {lbl:`WORST VD (${overallWorst.invName.split(' ').slice(-1)[0]} #${overallWorst.u})`,
+                   val:`${fmt(overallWorst.vdPct,2)}%`, c:overallWorst.vdOk?T.green:'#ef4444'},
+                ].map((item,i)=>(
+                  <div key={i} style={{background:'rgba(0,0,0,0.2)', border:'1px solid rgba(0,212,255,0.08)',
+                    borderRadius:9, padding:'12px 16px', position:'relative', overflow:'hidden'}}>
+                    <div style={{position:'absolute', top:0, left:0, right:0, height:2,
+                      background:`linear-gradient(90deg,transparent,${item.c},transparent)`}}/>
+                    <MonoLbl style={{display:'block', marginBottom:5}}>{item.lbl}</MonoLbl>
+                    <RajVal size={22} color={item.c}>{item.val}</RajVal>
+                  </div>
+                ))}
+              </div>
+              <div style={{marginTop:10}}>
+                {allOk
+                  ? <Tag ok>✓ ALL INVERTER UNITS WITHIN VD LIMITS</Tag>
+                  : <Tag warn>⚠ SOME UNITS EXCEED VD LIMIT — CHECK PER-UNIT TABLE ABOVE</Tag>}
+              </div>
+            </div>
+          </Sec>
+        );
+      })()}
+
+      {/* ── ACDB ASSIGNMENT + FEEDER CABLE ── */}
+      <Sec color="green">
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'13px 18px',
+          borderBottom:'1px solid rgba(16,185,129,0.08)', background:'rgba(16,185,129,0.025)'}}>
+          <MonoLbl style={{color:T.green, fontSize:10, letterSpacing:2}}>
+            // ACDB → LT PANEL · ASSIGN INVERTERS &amp; SIZE FEEDER CABLES
+          </MonoLbl>
+          <button onClick={addACDB} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 14px',
+            background:'transparent',border:'1px solid rgba(16,185,129,0.35)',borderRadius:7,
+            color:T.green,fontFamily:rajFont,fontSize:13,fontWeight:700,letterSpacing:1.5,cursor:'pointer'}}>
+            + ADD ACDB
+          </button>
+        </div>
+
+        {/* status bar */}
+        <div style={{display:'flex',alignItems:'center',gap:14,padding:'10px 16px',borderBottom:'1px solid rgba(16,185,129,0.07)',flexWrap:'wrap'}}>
+          {[
+            {dot:'#00d4ff', lbl:'TOTAL',      val:invUnits.length},
+            {dot:T.green,   lbl:'ASSIGNED',   val:assignedSet.size},
+            {dot:T.amber,   lbl:'UNASSIGNED', val:invUnits.length-assignedSet.size},
+            {dot:T.violet,  lbl:'ACDBs',      val:S.acdbs.length}
+          ].map((s,i)=>(
+            <div key={i} style={{display:'flex',alignItems:'center',gap:6}}>
+              <div style={{width:7,height:7,borderRadius:'50%',background:s.dot}}/>
+              <MonoLbl style={{fontSize:9}}>{s.lbl}</MonoLbl>
+              <RajVal size={14} color={s.dot}>{s.val}</RajVal>
+            </div>
+          ))}
+          {invUnits.length-assignedSet.size>0&&(
+            <span style={{marginLeft:'auto',fontFamily:monoFont,fontSize:9,color:T.amber,
+              background:'rgba(251,191,36,0.07)',border:'1px solid rgba(251,191,36,0.2)',
+              padding:'3px 10px',borderRadius:4}}>
+              ⚠ {invUnits.length-assignedSet.size} UNASSIGNED
+            </span>
+          )}
+        </div>
+
+        <div style={{padding:14}}>
+          {S.acdbs.length===0&&(
+            <div style={{textAlign:'center',padding:'32px 20px',fontFamily:monoFont,fontSize:11,
+              color:'rgba(16,185,129,0.22)',border:'1.5px dashed rgba(16,185,129,0.12)',borderRadius:10}}>
+              // NO ACDBs — CLICK "+ ADD ACDB" TO START
+            </div>
+          )}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:14}}>
+            {S.acdbs.map(acdb=>{
+              const st      = getACDBSt(acdb.id);
+              const calc    = acdbCalcs[acdb.id]||{totalKW:0,rawI:0,designI:0,refVolt:400};
+              const assigned= (acdb.inverters||[]).map(uid=>invUnits.find(x=>x.uid===uid)).filter(Boolean);
+              const isOpen  = openDD===acdb.id;
+              const sug     = calc.designI>0 ? suggestACDB(calc.designI) : {sqmm:35,runs:1};
+              const selSqmm = st.sqmm||sug.sqmm;
+              const selRuns = st.runs||sug.runs;
+              const derated = getBase(selSqmm, S.acMat, S.acInst)*tf*gf;
+              const totalCap= derated*selRuns;
+              const iPerRun = calc.designI>0 ? calc.designI/selRuns : 0;
+              const ampOk   = totalCap>=calc.designI;
+              const vdRes   = calc.designI>0 ? acVD(selSqmm,iPerRun,st.len,calc.refVolt) : {vdV:0,vdPct:0,plossW:0};
+              const vdOk    = vdRes.vdPct<=(st.vdMax||1.5);
+              return (
+                <div key={acdb.id} style={{background:'rgba(0,8,22,0.9)',border:'1px solid rgba(16,185,129,0.15)',borderRadius:11,overflow:'hidden'}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+                    padding:'10px 13px',background:'rgba(16,185,129,0.04)',borderBottom:'1px solid rgba(16,185,129,0.08)'}}>
+                    <input value={acdb.name} onChange={e=>renameACDB(acdb.id,e.target.value)}
+                      style={{background:'none',border:'none',outline:'none',fontFamily:rajFont,
+                        fontSize:14,fontWeight:700,color:T.green,letterSpacing:.8,width:130}}/>
+                    <button onClick={()=>delACDB(acdb.id)}
+                      style={{background:'none',border:'1px solid rgba(239,68,68,0.2)',borderRadius:5,
+                        color:'rgba(239,68,68,0.4)',cursor:'pointer',padding:'3px 8px',fontSize:10,fontFamily:monoFont}}>✕</button>
+                  </div>
+                  {/* stats */}
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',borderBottom:'1px solid rgba(16,185,129,0.06)'}}>
+                    {[
+                      {lbl:'INVERTERS', val:assigned.length,                              c:T.accent},
+                      {lbl:'TOTAL KW',  val:calc.totalKW>0?`${calc.totalKW}kW`:'—',      c:T.amber},
+                      {lbl:'DESIGN I',  val:calc.designI>0?`${fmt(calc.designI,1)}A`:'—', c:T.green}
+                    ].map((s,i)=>(
+                      <div key={i} style={{padding:'8px 11px',textAlign:'center',borderRight:i<2?'1px solid rgba(16,185,129,0.06)':'none'}}>
+                        <MonoLbl style={{display:'block',fontSize:7.5,marginBottom:2}}>{s.lbl}</MonoLbl>
+                        <RajVal size={14} color={s.c}>{s.val}</RajVal>
+                      </div>
+                    ))}
+                  </div>
+                  {/* assigned inverters */}
+                  <div style={{padding:'10px 12px',minHeight:50}}>
+                    {assigned.length===0
+                      ? <MonoLbl style={{display:'block',textAlign:'center',padding:'10px 0',fontSize:9,color:'rgba(16,185,129,0.2)'}}>// NO INVERTERS ASSIGNED</MonoLbl>
+                      : assigned.map(u=>(
+                          <div key={u.uid} style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+                            padding:'6px 9px',marginBottom:5,borderRadius:7,
+                            background:'rgba(16,185,129,0.05)',border:'1px solid rgba(16,185,129,0.12)'}}>
+                            <div>
+                              <div style={{fontSize:11.5,fontWeight:600,color:'#a0f0d0'}}>
+                                {u.displayName} <span style={{color:'rgba(100,200,150,0.4)',fontSize:10}}>#{u.unit}</span>
+                              </div>
+                              <MonoLbl style={{fontSize:8.5}}>{u.inv.outVolt}V · {fmt((u.inv.rating*1000)/(Math.sqrt(3)*u.inv.outVolt*u.inv.pf),1)}A</MonoLbl>
+                            </div>
+                            <div style={{display:'flex',alignItems:'center',gap:8}}>
+                              <RajVal size={14} color={T.green}>{u.inv.rating}kW</RajVal>
+                              <button onClick={()=>unassignInv(u.uid)}
+                                style={{background:'none',border:'none',cursor:'pointer',color:'rgba(239,68,68,0.3)',fontSize:15,lineHeight:1,padding:'2px 4px'}}>×</button>
+                            </div>
+                          </div>
+                        ))}
+                  </div>
+                  {/* add inverter dropdown */}
+                  <div style={{padding:'0 12px 12px'}}>
+                    <button onClick={()=>setOpenDD(openDD===acdb.id?null:acdb.id)} disabled={unassigned.length===0}
+                      style={{width:'100%',padding:'8px 12px',background:'transparent',
+                        border:'1px dashed rgba(16,185,129,0.22)',borderRadius:7,
+                        color:'rgba(16,185,129,0.45)',fontFamily:monoFont,fontSize:9.5,
+                        cursor:unassigned.length===0?'not-allowed':'pointer',
+                        display:'flex',alignItems:'center',justifyContent:'center',gap:6,
+                        opacity:unassigned.length===0?0.3:1}}>
+                      + ADD INVERTER
+                      {unassigned.length>0&&(
+                        <span style={{fontSize:8.5,background:'rgba(16,185,129,0.1)',padding:'1px 7px',borderRadius:3}}>
+                          {unassigned.length} available
+                        </span>
+                      )}
+                    </button>
+                    {isOpen&&(
+                      <div style={{marginTop:7,background:'rgba(2,18,36,0.98)',
+                        border:'1px solid rgba(16,185,129,0.22)',borderRadius:9,overflow:'hidden'}}>
+                        <div style={{maxHeight:160,overflowY:'auto'}}>
+                          {unassigned.map(u=>(
+                            <div key={u.uid} onClick={()=>{assignInv(acdb.id,u.uid);setOpenDD(null);}}
+                              style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+                                padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid rgba(16,185,129,0.05)'}}
+                              onMouseOver={e=>e.currentTarget.style.background='rgba(16,185,129,0.07)'}
+                              onMouseOut={e=>e.currentTarget.style.background='transparent'}>
+                              <div>
+                                <div style={{fontSize:11.5,fontWeight:500,color:'#a0d0f0'}}>
+                                  {u.displayName} <span style={{color:'rgba(100,200,150,0.4)'}}>#{u.unit}</span>
+                                </div>
+                                <MonoLbl style={{fontSize:8.5}}>{u.inv.outVolt}V</MonoLbl>
+                              </div>
+                              <RajVal size={14} color={T.amber}>{u.inv.rating}kW</RajVal>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{padding:'6px 11px',borderTop:'1px solid rgba(16,185,129,0.08)',textAlign:'center'}}>
+                          <button onClick={()=>setOpenDD(null)}
+                            style={{background:'none',border:'none',cursor:'pointer',
+                              fontFamily:monoFont,fontSize:9,color:'rgba(100,180,255,0.28)'}}>✕ CLOSE</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {/* feeder cable sizing */}
+                  {assigned.length>0&&(
+                    <div style={{padding:'0 12px 14px',borderTop:'1px solid rgba(16,185,129,0.07)'}}>
+                      <MonoLbl style={{display:'block',margin:'10px 0 8px',fontSize:9,color:T.green,letterSpacing:1.2}}>
+                        // FEEDER CABLE SIZING
+                      </MonoLbl>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+                        <Fld label="Cable Size">
+                          <select style={inpG} value={selSqmm} onChange={e=>setACDBSt(acdb.id,{sqmm:parseInt(e.target.value)})}>
+                            {AC_CABLES.map(c=><option key={c.sqmm} value={c.sqmm}>{c.sqmm} mm²</option>)}
+                          </select>
+                        </Fld>
+                        <Fld label="Parallel Runs">
+                          <div style={{display:'flex',gap:5,alignItems:'center'}}>
+                            <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                              <button onClick={()=>setACDBSt(acdb.id,{runs:Math.max(1,selRuns+1)})}
+                                style={{width:22,height:16,background:'rgba(167,139,250,0.07)',border:'1px solid rgba(167,139,250,0.18)',borderRadius:4,color:T.violet,cursor:'pointer',fontSize:9,display:'flex',alignItems:'center',justifyContent:'center'}}>▲</button>
+                              <button onClick={()=>setACDBSt(acdb.id,{runs:Math.max(1,selRuns-1)})}
+                                style={{width:22,height:16,background:'rgba(167,139,250,0.07)',border:'1px solid rgba(167,139,250,0.18)',borderRadius:4,color:T.violet,cursor:'pointer',fontSize:9,display:'flex',alignItems:'center',justifyContent:'center'}}>▼</button>
+                            </div>
+                            <input type="number" min="1" max="6" value={selRuns}
+                              onChange={e=>setACDBSt(acdb.id,{runs:Math.max(1,parseInt(e.target.value)||1)})}
+                              style={{width:50,padding:'5px 7px',background:'rgba(167,139,250,0.07)',
+                                border:'1px solid rgba(167,139,250,0.18)',borderRadius:6,
+                                color:T.violet,fontFamily:rajFont,fontSize:15,fontWeight:700,
+                                textAlign:'center',outline:'none'}}/>
+                          </div>
+                        </Fld>
+                        <Fld label="Cable Length (m)">
+                          <input type="number" style={inpG} value={st.len||80} onChange={e=>setACDBSt(acdb.id,{len:parseFloat(e.target.value)||1})}/>
+                        </Fld>
+                        <Fld label="Max VD %">
+                          <input type="number" step="0.25" style={inpG} value={st.vdMax||1.5} onChange={e=>setACDBSt(acdb.id,{vdMax:parseFloat(e.target.value)||1})}/>
+                        </Fld>
+                      </div>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
+                        {[
+                          {lbl:'TOTAL CAPACITY', val:`${fmt(totalCap,0)}A`, c:ampOk?T.green:'#ef4444', ok:ampOk},
+                          {lbl:'VD %',           val:`${fmt(vdRes.vdPct,2)}%`, c:vdOk?T.green:T.amber, ok:vdOk},
+                          {lbl:'POWER LOSS',     val:`${fmt(vdRes.plossW*selRuns/1000,3)}kW`, c:T.amber, ok:true},
+                        ].map((item,i)=>(
+                          <div key={i} style={{background:item.ok?'rgba(16,185,129,0.04)':'rgba(239,68,68,0.04)',
+                            border:`1px solid ${item.ok?'rgba(16,185,129,0.12)':'rgba(239,68,68,0.12)'}`,
+                            borderRadius:7,padding:'8px 10px',textAlign:'center'}}>
+                            <MonoLbl style={{display:'block',fontSize:8,marginBottom:3}}>{item.lbl}</MonoLbl>
+                            <RajVal size={14} color={item.c}>{item.val}</RajVal>
+                          </div>
+                        ))}
+                      </div>
+                      {selRuns>1&&(
+                        <div style={{marginTop:8,padding:'4px 10px',background:'rgba(167,139,250,0.07)',
+                          border:'1px solid rgba(167,139,250,0.18)',borderRadius:5,
+                          fontFamily:monoFont,fontSize:9,color:T.violet}}>
+                          ×{selRuns} RUNS · {fmt(iPerRun,1)}A per run
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </Sec>
+
+    </div>
+  );
+}
+
+
+// ─── PAGE 5: BREAKER SELECTION ────────────────────────────────────────────
+function Page5({S, derived}) {
+  const { acdbCalcs } = derived;
+
+  function BrkCard({title, sub, c, color}) {
+    const typeColor = c.type==='MCB'?T.accent:c.type==='MCCB'?T.violet:T.green;
+    const accentCol = color==='blue'?T.accent:color==='amber'?T.amber:T.green;
+    const bdColor   = color==='blue'?T.border:color==='amber'?T.borderY:T.borderG;
+    return (
+      <div style={{background:'rgba(0,6,18,0.9)',border:`1px solid ${bdColor}`,borderRadius:10,overflow:'hidden'}}>
+        <div style={{padding:'10px 14px',borderBottom:`1px solid ${bdColor}`,background:`${color==='blue'?'rgba(0,212,255':color==='amber'?'rgba(251,191,36':'rgba(16,185,129'},0.02)`}}>
+          <div style={{fontSize:12.5,fontWeight:600,color:accentCol}}>{title}</div>
+          <MonoLbl style={{fontSize:8.5,marginTop:2}}>{sub}</MonoLbl>
+        </div>
+        <div style={{padding:13}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr auto 1fr',alignItems:'center',gap:4,padding:'8px 11px',background:'rgba(0,0,0,0.25)',borderRadius:8,marginBottom:13}}>
+            {[{lbl:'RATED I',val:`${fmt(c.rawI,1)}A`},{arrow:'×1.25'},{lbl:'DESIGN I',val:`${fmt(c.designI,1)}A`},{arrow:'→'},{lbl:'NEED ≥',val:`${Math.ceil(c.designI)}A`}].map((item,i)=>
+              item.arrow?<div key={i} style={{fontFamily:monoFont,fontSize:11,color:'rgba(100,180,255,0.15)',textAlign:'center'}}>{item.arrow}</div>:
+              <div key={i} style={{textAlign:'center'}}><MonoLbl style={{display:'block',fontSize:7.5,marginBottom:2}}>{item.lbl}</MonoLbl><RajVal size={14} color={accentCol}>{item.val}</RajVal></div>
+            )}
+          </div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'13px 15px',borderRadius:9,border:`1.5px solid ${bdColor.replace('0.1','0.25').replace('0.15','0.25')}`,background:`${color==='blue'?'rgba(0,212,255':color==='amber'?'rgba(251,191,36':'rgba(16,185,129'},0.05)`}}>
+            <div>
+              <span style={{display:'inline-block',fontFamily:monoFont,fontSize:9,padding:'2px 9px',borderRadius:4,background:`rgba(${c.type==='MCB'?'0,212,255':c.type==='MCCB'?'167,139,250':'16,185,129'},0.1)`,border:`1px solid rgba(${c.type==='MCB'?'0,212,255':c.type==='MCCB'?'167,139,250':'16,185,129'},0.2)`,color:typeColor,letterSpacing:1,marginBottom:7}}>{c.type}</span>
+              <div style={{display:'flex',alignItems:'baseline',gap:4}}>
+                <RajVal size={36} color={accentCol}>{c.size}</RajVal>
+                <MonoLbl style={{color:'rgba(100,180,255,0.4)',fontSize:12}}>A</MonoLbl>
+              </div>
+              <MonoLbl style={{fontSize:9,marginTop:4}}>4-Pole · Auto-selected</MonoLbl>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <MonoLbl style={{display:'block',marginBottom:3}}>MARGIN</MonoLbl>
+              <RajVal size={20} color={c.ok?c.margin<15?T.amber:T.green:'#ef4444'}>+{c.margin}%</RajVal>
+              <div style={{marginTop:6}}><Tag ok={c.ok} warn={!c.ok}>{c.ok?'✓ VALID':'⚠ CHECK'}</Tag></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const invRows = S.inverters.map(inv=>({title:inv.name,sub:`${inv.rating}kW · ${inv.outVolt}V · PF ${inv.pf} · ${inv.qty}u`,c:calcBrk(inv.rating,inv.outVolt,inv.pf),color:'blue'}));
+  const acdbRows = S.acdbs.filter(a=>(a.inverters||[]).length>0).map(acdb=>{const calc=acdbCalcs[acdb.id]||{totalKW:0,refVolt:400,refPF:0.99};return{title:acdb.name,sub:`${calc.totalKW}kW total · ${calc.refVolt}V`,c:calcBrk(calc.totalKW,calc.refVolt,calc.refPF||0.99),color:'amber'};});
+  const ltKW=S.inverters.reduce((s,i)=>s+i.rating*i.qty,0);
+  const ltVolt=S.inverters[0]?.outVolt||400;
+  const ltPF=S.inverters[0]?.pf||0.99;
+  const ltRow={title:'LT Panel Main Incomer',sub:`Total ${ltKW}kW · ${ltVolt}V · All ACDBs combined`,c:calcBrk(ltKW,ltVolt,ltPF),color:'green'};
+  const allRows=[...invRows,...acdbRows,ltRow];
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'center',gap:14,padding:'11px 16px',background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:20,flexWrap:'wrap'}}>
+        {[{lbl:'FORMULA',val:'I = P / (√3 × V × PF) × 1.25'},{lbl:'MCB',val:'≤ 125A'},{lbl:'MCCB',val:'125–1600A'},{lbl:'ACB',val:'> 800A'},{lbl:'ALL RESULTS',val:'4-POLE'}].map((item,i)=>(
+          <span key={i} style={{display:'flex',alignItems:'center',gap:7}}>
+            {i>0&&<span style={{width:1,height:22,background:'rgba(0,212,255,0.1)',display:'inline-block',margin:'0 4px'}}/>}
+            <MonoLbl style={{fontSize:9}}>{item.lbl}</MonoLbl>
+            <span style={{fontFamily:monoFont,fontSize:10,color:T.accent,background:'rgba(0,212,255,0.07)',padding:'3px 10px',borderRadius:5,border:'1px solid rgba(0,212,255,0.14)'}}>{item.val}</span>
+          </span>
+        ))}
+      </div>
+
+      {invRows.length>0&&<Sec color="blue"><SecHdr color="blue">// INVERTER OUTPUT BREAKERS</SecHdr><div style={{padding:16,display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>{invRows.map((b,i)=><BrkCard key={i} {...b}/>)}</div></Sec>}
+      {acdbRows.length>0&&<Sec color="amber"><SecHdr color="amber">// ACDB INCOMER BREAKERS</SecHdr><div style={{padding:16,display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>{acdbRows.map((b,i)=><BrkCard key={i} {...b}/>)}</div></Sec>}
+      <Sec color="green"><SecHdr color="green">// LT PANEL MAIN INCOMER</SecHdr><div style={{padding:16,display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}><BrkCard {...ltRow}/></div></Sec>
+
+      <Sec color="blue">
+        <SecHdr color="blue">// PROTECTION SCHEDULE — COMPLETE SUMMARY</SecHdr>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:650}}>
+            <thead><tr>{['COMPONENT','RATED I','DESIGN I (×1.25)','TYPE','POLES','SIZE','MARGIN','STATUS'].map(h=><th key={h} style={{fontFamily:monoFont,fontSize:9,color:'rgba(100,180,255,0.35)',letterSpacing:1,padding:'8px 14px',borderBottom:'1px solid rgba(0,212,255,0.07)',textAlign:'left',fontWeight:400,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+            <tbody>
+              {allRows.map((row,i)=>{
+                const c=row.c;
+                const typeColor=c.type==='MCB'?T.accent:c.type==='MCCB'?T.violet:T.green;
+                return <tr key={i} style={{borderBottom:'1px solid rgba(0,212,255,0.04)'}}>
+                  <td style={{padding:'9px 14px',fontSize:12.5,fontWeight:600,color:T.text}}>{row.title}</td>
+                  <td style={{padding:'9px 14px',fontFamily:rajFont,fontSize:14,fontWeight:700,color:T.amber}}>{fmt(c.rawI,1)}A</td>
+                  <td style={{padding:'9px 14px',fontFamily:rajFont,fontSize:14,fontWeight:700,color:T.amber}}>{fmt(c.designI,1)}A</td>
+                  <td style={{padding:'9px 14px'}}><span style={{fontFamily:monoFont,fontSize:9,padding:'2px 8px',borderRadius:4,background:`rgba(${c.type==='MCB'?'0,212,255':c.type==='MCCB'?'167,139,250':'16,185,129'},0.08)`,border:`1px solid rgba(${c.type==='MCB'?'0,212,255':c.type==='MCCB'?'167,139,250':'16,185,129'},0.15)`,color:typeColor}}>{c.type}</span></td>
+                  <td style={{padding:'9px 14px',fontFamily:monoFont,fontSize:10,color:'rgba(140,180,230,0.5)'}}>4P</td>
+                  <td style={{padding:'9px 14px',fontFamily:rajFont,fontSize:15,fontWeight:700,color:T.accent}}>{c.size}A</td>
+                  <td style={{padding:'9px 14px',fontFamily:rajFont,fontSize:14,fontWeight:700,color:c.ok?c.margin<15?T.amber:T.green:'#ef4444'}}>+{c.margin}%</td>
+                  <td style={{padding:'9px 14px'}}><Tag ok={c.ok} warn={!c.ok}>{c.ok?'✓ OK':'⚠ REVIEW'}</Tag></td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Sec>
+    </div>
+  );
+}
+
+
+// ─── PAGE 6: SUMMARY REPORT ────────────────────────────────────────────────
+function Page6({S, derived}) {
+  const { tf, gf, combos, acdbCalcs } = derived;
+
+  const today = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+  const totalDC   = S.modules.reduce((s,m)=>s+m.qty*m.watt/1000,0);
+  const totalAC   = S.inverters.reduce((s,i)=>s+i.qty*i.rating,0);
+  const totalMods = S.modules.reduce((s,m)=>s+m.qty,0);
+  const totalInvUnits = S.inverters.reduce((s,i)=>s+i.qty,0);
+
+  // ── BREAKER CALCS ──
+  const invBreakers = S.inverters.map(inv=>({
+    name:inv.name, sub:`${inv.qty}u · ${inv.outVolt}V`, ...calcBrk(inv.rating,inv.outVolt,inv.pf)
+  }));
+  const acdbBreakers = S.acdbs.filter(a=>(a.inverters||[]).length>0).map(acdb=>{
+    const c = acdbCalcs[acdb.id]||{totalKW:0,refVolt:400,refPF:0.99};
+    return {name:acdb.name, sub:`${c.totalKW}kW`, ...calcBrk(c.totalKW,c.refVolt,c.refPF||0.99)};
+  });
+  const ltBrk = {name:'LT Panel Main Incomer', sub:`Total ${totalAC}kW`, ...calcBrk(totalAC,S.inverters[0]?.outVolt||400,S.inverters[0]?.pf||0.99)};
+  const allBreakers = [...invBreakers,...acdbBreakers,ltBrk];
+
+  // ── AC CABLE LOSS CALCS ──
+  let totalACLoss = 0;
+  const acCableSummary = S.inverters.map(inv=>{
+    const st      = S.acInvCableState[inv.id]||{len:50,vdMax:1.5,sel:null};
+    const rawI    = (inv.rating*1000)/(Math.sqrt(3)*inv.outVolt*inv.pf);
+    let selSqmm   = st.sel;
+    if(!selSqmm){ for(const c of AC_CABLES){ const d=getBase(c.sqmm,S.acMat,S.acInst)*tf*gf; if(d>=rawI*1.25){selSqmm=c.sqmm;break;} } }
+    let unitLoss=0, worstVD=0;
+    for(let u=1;u<=inv.qty;u++){
+      const uk=`${inv.id}_${u}`;
+      const len=S.unitCableLen[uk]??st.len??50;
+      const {vdPct,plossW}=selSqmm?acVD(selSqmm,rawI,len,inv.outVolt):{vdPct:0,plossW:0};
+      unitLoss+=plossW;
+      if(vdPct>worstVD) worstVD=vdPct;
+    }
+    totalACLoss+=unitLoss;
+    return {name:inv.name, qty:inv.qty, sqmm:selSqmm, totalLossW:unitLoss, worstVD, avgLen:st.len};
+  });
+
+  // ── ACDB CABLE LOSS ──
+  let totalACDBLoss = 0;
+  const acdbCableSummary = S.acdbs.filter(a=>(a.inverters||[]).length>0).map(acdb=>{
+    const st    = S.acdbCableState[acdb.id]||{sqmm:null,runs:1,len:80,vdMax:1.5};
+    const calc  = acdbCalcs[acdb.id]||{totalKW:0,rawI:0,designI:0,refVolt:400};
+    const iPerRun = calc.designI>0?(calc.designI/(st.runs||1)):0;
+    const vdR   = (st.sqmm&&calc.designI>0)?acVD(st.sqmm,iPerRun,st.len,calc.refVolt):{vdV:0,vdPct:0,plossW:0};
+    totalACDBLoss += vdR.plossW*(st.runs||1);
+    return {name:acdb.name, sqmm:st.sqmm, runs:st.runs||1, lossW:vdR.plossW*(st.runs||1), vdPct:vdR.vdPct};
+  });
+
+  const grandTotalLoss = (totalACLoss+totalACDBLoss)/1000;
+  const systemEffPct   = totalAC>0 ? Math.max(0,(1-grandTotalLoss/totalAC)*100) : 0;
+
+  // ── WARNINGS ──
+  const warnings = [];
+  Object.entries(combos).forEach(([,c])=>{
+    if(c.errVoc)    warnings.push({type:'err', msg:`${c.m.name} × ${c.inv.name}: String Voc (${fmt(c.strVocCold,1)}V) exceeds inverter max DC (${c.inv.maxDC}V)`});
+    if(c.errMpptLo) warnings.push({type:'err', msg:`${c.m.name} × ${c.inv.name}: String Vmp hot (${fmt(c.strVmpHot,1)}V) below MPPT min (${c.inv.mpptMin}V)`});
+    if(c.errMpptHi) warnings.push({type:'err', msg:`${c.m.name} × ${c.inv.name}: String Vmp STC (${fmt(c.strVmpSTC,1)}V) exceeds MPPT max (${c.inv.mpptMax}V)`});
+    if(c.warnSPM)   warnings.push({type:'warn', msg:`${c.m.name} × ${c.inv.name}: Strings/MPPT (${c.strPerMppt}) exceeds max (${c.inv.maxSPM})`});
+  });
+  acCableSummary.forEach(r=>{ if(r.worstVD>2) warnings.push({type:'warn',msg:`${r.name}: Worst AC cable VD is ${fmt(r.worstVD,2)}% — check individual unit lengths`}); });
+  allBreakers.forEach(b=>{ if(!b.ok) warnings.push({type:'warn',msg:`${b.name}: Breaker ${b.size}A may be undersized for design current ${fmt(b.designI,1)}A`}); });
+
+  // ── PRINT HANDLER ──
+  const handlePrint = () => {
+    const style = document.createElement('style');
+    style.id = 'print-style';
+    style.textContent = `
+      @media print {
+        @page { size: A4; margin: 15mm 12mm; }
+        body { background: white !important; color: #000 !important; font-family: Arial, sans-serif !important; }
+        #sidebar-nav, #nav-buttons { display: none !important; }
+        #print-report { display: block !important; }
+        .no-print { display: none !important; }
+        .print-section { page-break-inside: avoid; margin-bottom: 14px; }
+        .print-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+        .print-table th { background: #1a3a5c !important; color: white !important; padding: 5px 8px; text-align: left; font-size: 9px; }
+        .print-table td { padding: 5px 8px; border-bottom: 1px solid #ddd; font-size: 10px; }
+        .print-table tr:nth-child(even) td { background: #f8f9fa; }
+        .print-hdr { background: #0a2040 !important; color: white !important; padding: 8px 12px; margin-bottom: 6px; border-radius: 4px; }
+        .print-hdr h2 { font-size: 11px; margin: 0; letter-spacing: 1px; color: white !important; }
+        .print-stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 10px; }
+        .print-stat { border: 1px solid #ccc; border-radius: 4px; padding: 8px; text-align: center; }
+        .print-stat .val { font-size: 16px; font-weight: bold; color: #1a3a5c; }
+        .print-stat .lbl { font-size: 8px; color: #666; text-transform: uppercase; }
+        .warn-box { background: #fff8e1 !important; border: 1px solid #f59e0b; padding: 6px 10px; border-radius: 4px; font-size: 9px; color: #92400e; margin: 3px 0; }
+        .err-box  { background: #fef2f2 !important; border: 1px solid #ef4444; padding: 6px 10px; border-radius: 4px; font-size: 9px; color: #991b1b; margin: 3px 0; }
+        .tag-ok   { background: #d1fae5 !important; color: #065f46; padding: 1px 6px; border-radius: 3px; font-size: 8px; }
+        .tag-warn { background: #fef3c7 !important; color: #92400e; padding: 1px 6px; border-radius: 3px; font-size: 8px; }
+        .tag-err  { background: #fee2e2 !important; color: #991b1b; padding: 1px 6px; border-radius: 3px; font-size: 8px; }
+      }
+    `;
+    document.head.appendChild(style);
+    window.print();
+    setTimeout(()=>{ const el=document.getElementById('print-style'); if(el) el.remove(); }, 1000);
+  };
+
+  // ── SCREEN CARD ──
+  const SumCard = ({children, color='blue', style:st={}}) => (
+    <div style={{background:T.card,border:`1px solid ${color==='blue'?T.border:color==='amber'?T.borderY:T.borderG}`,borderRadius:12,overflow:'hidden',marginBottom:16,...st}}>
+      {children}
+    </div>
+  );
+  const SumHdr = ({icon, title, color='blue'}) => {
+    const ac = color==='blue'?T.accent:color==='amber'?T.amber:T.green;
+    const bg = color==='blue'?'rgba(0,212,255,0.025)':color==='amber'?'rgba(251,191,36,0.025)':'rgba(16,185,129,0.025)';
+    const bd = color==='blue'?'rgba(0,212,255,0.08)':color==='amber'?'rgba(251,191,36,0.08)':'rgba(16,185,129,0.08)';
+    return (
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'11px 16px',borderBottom:`1px solid ${bd}`,background:bg}}>
+        <span style={{fontSize:14}}>{icon}</span>
+        <MonoLbl style={{color:ac,fontSize:10,letterSpacing:2}}>{title}</MonoLbl>
+      </div>
+    );
+  };
+  const TH = ({children,w}) => <th style={{fontFamily:monoFont,fontSize:8.5,color:'rgba(100,180,255,0.4)',letterSpacing:.8,padding:'7px 12px',borderBottom:'1px solid rgba(0,212,255,0.08)',textAlign:'left',fontWeight:400,whiteSpace:'nowrap',width:w}}>{children}</th>;
+  const TD = ({children,c,mono,bold,center}) => <td style={{padding:'8px 12px',fontSize:12,color:c||T.text,fontFamily:mono?monoFont:'Inter,sans-serif',fontWeight:bold?700:400,textAlign:center?'center':'left',borderBottom:'1px solid rgba(0,212,255,0.04)'}}>{children}</td>;
+  const TypeBadge = ({type}) => {
+    const cl = type==='MCB'?T.accent:type==='MCCB'?T.violet:T.green;
+    return <span style={{fontFamily:monoFont,fontSize:8.5,padding:'2px 7px',borderRadius:4,background:`rgba(${type==='MCB'?'0,212,255':type==='MCCB'?'167,139,250':'16,185,129'},0.08)`,border:`1px solid rgba(${type==='MCB'?'0,212,255':type==='MCCB'?'167,139,250':'16,185,129'},0.15)`,color:cl}}>{type}</span>;
+  };
+
+  return (
+    <div>
+      {/* PRINT BUTTON */}
+      <div className="no-print" style={{display:'flex',justifyContent:'flex-end',marginBottom:20,gap:10}}>
+        <button onClick={handlePrint}
+          style={{display:'flex',alignItems:'center',gap:8,padding:'10px 22px',background:'transparent',
+            border:'1px solid rgba(0,212,255,0.4)',borderRadius:9,color:T.accent,cursor:'pointer',
+            fontFamily:rajFont,fontSize:14,fontWeight:700,letterSpacing:2,transition:'all .2s'}}
+          onMouseOver={e=>{e.currentTarget.style.background='rgba(0,212,255,0.08)';e.currentTarget.style.borderColor='rgba(0,212,255,0.7)'}}
+          onMouseOut={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.borderColor='rgba(0,212,255,0.4)'}}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="2" y="5" width="12" height="9" rx="1.5" stroke="#00d4ff" strokeWidth="1.1"/>
+            <path d="M5 5V2.5C5 2 5.5 1.5 6 1.5H10C10.5 1.5 11 2 11 2.5V5" stroke="#00d4ff" strokeWidth="1.1"/>
+            <line x1="5" y1="10" x2="11" y2="10" stroke="#00d4ff" strokeWidth="1" strokeLinecap="round"/>
+            <line x1="5" y1="12" x2="9" y2="12" stroke="#00d4ff" strokeWidth="1" strokeLinecap="round"/>
+          </svg>
+          PRINT / EXPORT PDF
+        </button>
+      </div>
+
+      {/* ── SECTION 1: PROJECT INFO ── */}
+      <SumCard color="blue">
+        <SumHdr icon="◈" title="// 01 — PROJECT INFORMATION" color="blue"/>
+        <div style={{padding:'14px 18px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12}}>
+          {[
+            {lbl:'PROJECT NAME',    val:S.projectName||'—'},
+            {lbl:'ENGINEER',        val:S.userName||'—'},
+            {lbl:'SITE LOCATION',   val:S.location||'—'},
+            {lbl:'DATE',            val:today},
+          ].map((item,i)=>(
+            <div key={i} style={{background:'rgba(0,0,0,0.2)',borderRadius:8,padding:'10px 13px'}}>
+              <MonoLbl style={{display:'block',fontSize:8,marginBottom:5}}>{item.lbl}</MonoLbl>
+              <div style={{fontSize:13,fontWeight:600,color:T.text}}>{item.val}</div>
+            </div>
+          ))}
+        </div>
+      </SumCard>
+
+      {/* ── SECTION 2: SYSTEM OVERVIEW ── */}
+      <SumCard color="blue">
+        <SumHdr icon="⊞" title="// 02 — SYSTEM OVERVIEW" color="blue"/>
+        <div style={{padding:'14px 18px',display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
+          {[
+            {lbl:'TOTAL DC CAPACITY',  val:fmt(totalDC,2),   unit:'kWp',  c:T.accent},
+            {lbl:'TOTAL AC CAPACITY',  val:fmt(totalAC,1),   unit:'kW',   c:T.amber},
+            {lbl:'DC / AC RATIO',      val:totalAC>0?fmt(totalDC/totalAC,3):'—', unit:'', c:T.green},
+            {lbl:'TOTAL MODULES',      val:fmtI(totalMods),  unit:'pcs',  c:T.violet},
+            {lbl:'INVERTER TYPES',     val:S.inverters.length, unit:'types', c:T.accent},
+            {lbl:'INVERTER UNITS',     val:totalInvUnits,    unit:'units', c:T.amber},
+            {lbl:'ACDB COUNT',         val:S.acdbs.length,   unit:'ACDBs', c:T.green},
+            {lbl:'MODULE TYPES',       val:S.modules.length, unit:'types', c:T.violet},
+          ].map((item,i)=>(
+            <div key={i} style={{background:'rgba(0,0,0,0.2)',border:'1px solid rgba(0,212,255,0.06)',borderRadius:9,padding:'11px 14px'}}>
+              <MonoLbl style={{display:'block',fontSize:8,marginBottom:4}}>{item.lbl}</MonoLbl>
+              <div style={{display:'flex',alignItems:'baseline',gap:4}}>
+                <RajVal size={20} color={item.c}>{item.val}</RajVal>
+                <MonoLbl style={{color:'rgba(100,180,255,0.25)',fontSize:8}}>{item.unit}</MonoLbl>
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* equipment list */}
+        <div style={{padding:'0 18px 16px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <div>
+            <MonoLbl style={{display:'block',marginBottom:8,color:T.amber}}>PV MODULES</MonoLbl>
+            {S.modules.map(m=>(
+              <div key={m.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 10px',background:'rgba(251,191,36,0.04)',border:'1px solid rgba(251,191,36,0.1)',borderRadius:7,marginBottom:5}}>
+                <div><div style={{fontSize:12.5,fontWeight:600,color:T.text}}>{m.name}</div><MonoLbl style={{fontSize:8.5}}>{m.watt}Wp · Voc {m.voc}V · Vmp {m.vmp}V</MonoLbl></div>
+                <RajVal size={14} color={T.amber}>{m.qty} pcs</RajVal>
+              </div>
+            ))}
+          </div>
+          <div>
+            <MonoLbl style={{display:'block',marginBottom:8,color:T.accent}}>INVERTERS</MonoLbl>
+            {S.inverters.map(inv=>(
+              <div key={inv.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 10px',background:'rgba(0,212,255,0.04)',border:'1px solid rgba(0,212,255,0.08)',borderRadius:7,marginBottom:5}}>
+                <div><div style={{fontSize:12.5,fontWeight:600,color:T.text}}>{inv.name}</div><MonoLbl style={{fontSize:8.5}}>{inv.rating}kW · {inv.outVolt}V · {inv.mpptCount} MPPTs</MonoLbl></div>
+                <RajVal size={14} color={T.accent}>{inv.qty} u</RajVal>
+              </div>
+            ))}
+          </div>
+        </div>
+      </SumCard>
+
+      {/* ── SECTION 3: STRING SIZING ── */}
+      <SumCard color="amber">
+        <SumHdr icon="≋" title="// 03 — STRING SIZING SUMMARY" color="amber"/>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:700}}>
+            <thead><tr>
+              {['MODULE TYPE','INVERTER TYPE','N (mods/str)','TOTAL STRINGS','VOC COLD (V)','VMP STC (V)','STR/INV','STR/MPPT','STATUS'].map(h=><TH key={h}>{h}</TH>)}
+            </tr></thead>
+            <tbody>
+              {Object.entries(combos).map(([key,c])=>{
+                const sc = c.errVoc||c.errMpptLo||c.errMpptHi?'err':c.errVocSm||c.warnSPM?'warn':'ok';
+                return (
+                  <tr key={key}>
+                    <TD><span style={{fontSize:12,fontWeight:600}}>{c.m.name}</span></TD>
+                    <TD>{c.inv.name}</TD>
+                    <TD c={T.accent} bold center>{c.N}</TD>
+                    <TD c={T.amber} bold center>{c.totalStrings}</TD>
+                    <TD c={c.errVoc?'#ef4444':T.amber} mono>{fmt(c.strVocCold,1)}</TD>
+                    <TD c={T.green} mono>{fmt(c.strVmpSTC,1)}</TD>
+                    <TD center>{c.strPerInv}</TD>
+                    <TD c={c.warnSPM?T.amber:T.green} center>{c.strPerMppt}</TD>
+                    <TD><Tag ok={sc==='ok'} warn={sc==='warn'} err={sc==='err'}>{sc==='ok'?'✓ VALID':sc==='warn'?'⚠ WARN':'✕ ERROR'}</Tag></TD>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </SumCard>
+
+      {/* ── SECTION 4: AC CABLE SUMMARY ── */}
+      <SumCard color="blue">
+        <SumHdr icon="∿" title="// 04 — AC CABLE SUMMARY" color="blue"/>
+        <div style={{overflowX:'auto',marginBottom:12}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:600}}>
+            <thead><tr>
+              {['INVERTER TYPE','UNITS','CABLE SIZE','AVG LENGTH (m)','WORST VD %','TOTAL LOSS (kW)','STATUS'].map(h=><TH key={h}>{h}</TH>)}
+            </tr></thead>
+            <tbody>
+              {acCableSummary.map((r,i)=>(
+                <tr key={i}>
+                  <TD><span style={{fontSize:12,fontWeight:600}}>{r.name}</span></TD>
+                  <TD center>{r.qty}</TD>
+                  <TD c={T.accent} mono>{r.sqmm?`${r.sqmm} mm²`:'—'}</TD>
+                  <TD center>{r.avgLen} m</TD>
+                  <TD c={r.worstVD>2?T.amber:T.green} mono>{fmt(r.worstVD,2)}%</TD>
+                  <TD c={T.amber} mono>{fmt(r.totalLossW/1000,3)}</TD>
+                  <TD><Tag ok={r.worstVD<=2} warn={r.worstVD>2}>{r.worstVD<=2?'✓ OK':'⚠ CHECK'}</Tag></TD>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {acdbCableSummary.length>0&&(
+          <div style={{padding:'0 18px 14px'}}>
+            <MonoLbl style={{display:'block',marginBottom:8,color:T.green}}>ACDB FEEDER CABLES</MonoLbl>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr>{['ACDB','CABLE SIZE','RUNS','CABLE LENGTH','VD %','POWER LOSS'].map(h=><TH key={h}>{h}</TH>)}</tr></thead>
+              <tbody>
+                {acdbCableSummary.map((r,i)=>(
+                  <tr key={i}>
+                    <TD><span style={{fontWeight:600,color:T.green}}>{r.name}</span></TD>
+                    <TD c={T.accent} mono>{r.sqmm?`${r.sqmm} mm²`:'—'}</TD>
+                    <TD c={T.violet} center>{r.runs}</TD>
+                    <TD c={T.text} mono>{(S.acdbCableState[S.acdbs.find(a=>a.name===r.name)?.id]?.len||80)} m</TD>
+                    <TD c={r.vdPct>2?T.amber:T.green} mono>{fmt(r.vdPct,2)}%</TD>
+                    <TD c={T.amber} mono>{fmt(r.lossW/1000,3)} kW</TD>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SumCard>
+
+      {/* ── SECTION 5: BREAKER SCHEDULE ── */}
+      <SumCard color="blue">
+        <SumHdr icon="⚡" title="// 05 — PROTECTION SCHEDULE" color="blue"/>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:650}}>
+            <thead><tr>
+              {['COMPONENT','RATED I (A)','DESIGN I (A)','TYPE','POLES','SIZE (A)','MARGIN','STATUS'].map(h=><TH key={h}>{h}</TH>)}
+            </tr></thead>
+            <tbody>
+              {allBreakers.map((b,i)=>(
+                <tr key={i}>
+                  <TD><span style={{fontSize:12,fontWeight:600}}>{b.name}</span><br/><MonoLbl style={{fontSize:8}}>{b.sub}</MonoLbl></TD>
+                  <TD c={T.amber} mono>{fmt(b.rawI,1)}</TD>
+                  <TD c={T.amber} mono>{fmt(b.designI,1)}</TD>
+                  <TD><TypeBadge type={b.type}/></TD>
+                  <TD c='rgba(140,180,230,0.5)' mono center>4P</TD>
+                  <TD c={T.accent} bold>{b.size}</TD>
+                  <TD c={b.ok?b.margin<15?T.amber:T.green:'#ef4444'} mono>+{b.margin}%</TD>
+                  <TD><Tag ok={b.ok} warn={!b.ok}>{b.ok?'✓ OK':'⚠ REVIEW'}</Tag></TD>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SumCard>
+
+      {/* ── SECTION 6: LOSS SUMMARY ── */}
+      <SumCard color="green">
+        <SumHdr icon="◎" title="// 06 — LOSS SUMMARY" color="green"/>
+        <div style={{padding:'14px 18px'}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:16}}>
+            {[
+              {lbl:'TOTAL AC CABLE LOSS',   val:`${fmt(totalACLoss/1000,3)} kW`,    c:T.amber},
+              {lbl:'TOTAL ACDB CABLE LOSS', val:`${fmt(totalACDBLoss/1000,3)} kW`,  c:T.amber},
+              {lbl:'COMBINED CABLE LOSS',   val:`${fmt(grandTotalLoss,3)} kW`,      c:'#ef4444'},
+              {lbl:'SYSTEM CABLE EFFICIENCY',val:`${fmt(systemEffPct,2)}%`,         c:T.green},
+            ].map((item,i)=>(
+              <div key={i} style={{background:'rgba(0,0,0,0.2)',border:'1px solid rgba(16,185,129,0.08)',borderRadius:9,padding:'12px 14px',position:'relative',overflow:'hidden'}}>
+                <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${item.c},transparent)`}}/>
+                <MonoLbl style={{display:'block',fontSize:8,marginBottom:4}}>{item.lbl}</MonoLbl>
+                <RajVal size={20} color={item.c}>{item.val}</RajVal>
+              </div>
+            ))}
+          </div>
+          {/* loss bar visual */}
+          <div style={{padding:'12px 14px',background:'rgba(0,0,0,0.2)',border:'1px solid rgba(16,185,129,0.08)',borderRadius:9}}>
+            <MonoLbl style={{display:'block',marginBottom:8,fontSize:9}}>CABLE LOSS BREAKDOWN</MonoLbl>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+              <MonoLbl style={{width:160,fontSize:9}}>INV → ACDB CABLE</MonoLbl>
+              <div style={{flex:1,background:'rgba(255,255,255,0.04)',borderRadius:3,height:8,overflow:'hidden'}}>
+                <div style={{height:'100%',width:`${totalAC>0?Math.min(100,totalACLoss/1000/totalAC*100*20):0}%`,background:T.amber,borderRadius:3}}/>
+              </div>
+              <RajVal size={12} color={T.amber}>{fmt(totalACLoss/1000,3)} kW</RajVal>
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+              <MonoLbl style={{width:160,fontSize:9}}>ACDB → LT PANEL</MonoLbl>
+              <div style={{flex:1,background:'rgba(255,255,255,0.04)',borderRadius:3,height:8,overflow:'hidden'}}>
+                <div style={{height:'100%',width:`${totalAC>0?Math.min(100,totalACDBLoss/1000/totalAC*100*20):0}%`,background:T.green,borderRadius:3}}/>
+              </div>
+              <RajVal size={12} color={T.green}>{fmt(totalACDBLoss/1000,3)} kW</RajVal>
+            </div>
+          </div>
+        </div>
+      </SumCard>
+
+      {/* ── SECTION 7: WARNINGS & ALERTS ── */}
+      {warnings.length>0&&(
+        <SumCard color="amber">
+          <SumHdr icon="⚠" title="// 07 — WARNINGS & ALERTS" color="amber"/>
+          <div style={{padding:'12px 18px'}}>
+            {warnings.map((w,i)=>(
+              <div key={i} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'8px 12px',
+                background:w.type==='err'?'rgba(239,68,68,0.06)':'rgba(251,191,36,0.06)',
+                border:`1px solid ${w.type==='err'?'rgba(239,68,68,0.18)':'rgba(251,191,36,0.18)'}`,
+                borderRadius:7,marginBottom:6}}>
+                <span style={{fontSize:13,flexShrink:0,marginTop:1}}>{w.type==='err'?'✕':'⚠'}</span>
+                <span style={{fontSize:12,color:w.type==='err'?'#fca5a5':T.amber,lineHeight:1.5}}>{w.msg}</span>
+              </div>
+            ))}
+          </div>
+        </SumCard>
+      )}
+      {warnings.length===0&&(
+        <div style={{display:'flex',alignItems:'center',gap:10,padding:'14px 18px',
+          background:T.card,border:`1px solid ${T.borderG}`,borderRadius:12,marginBottom:16}}>
+          <Tag ok>✓ NO WARNINGS</Tag>
+          <span style={{fontSize:13,color:'rgba(140,180,230,0.5)'}}>All design parameters are within acceptable limits</span>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+
+// ─── INITIAL STATE ────────────────────────────────────────────────────────
+const INIT = {
+  projectName:'', userName:'', location:'',
+  modules:[{id:'M1',name:'Module Type 1',watt:550,voc:49.5,vmp:41.2,isc:13.90,imp:13.35,tCoVoc:-0.27,tCoIsc:0.05,tCoPmax:-0.35,qty:100}],
+  inverters:[{id:'I1',name:'Inverter Type 1',rating:100,maxDC:1000,mpptMin:550,mpptMax:850,mpptCount:4,maxSPM:2,outVolt:400,pf:0.99,eff:98.5,qty:1}],
+  modSeq:2, invSeq:2,
+  tMin:5, tMax:70, safetyM:5,
+  deletedCombos:[], stringOverrides:{},
+  acMat:'copper', acInst:'air', acTemp:40, acTray:'perforated', acLayers:2, acCpt:3,
+  dcCableState:{}, acInvCableState:{}, acdbCableState:{},
+  acdbs:[], acdbSeq:0,
+  // per-unit overrides: key = `${comboKey}_unitIdx` e.g. "M1_I1_3"
+  unitStringN:{},      // {comboKey_unit -> N override} (legacy, kept for fallback)
+  unitStringCount:{},  // {comboKey_unit -> strings override} (legacy, kept for fallback)
+  unitConfigs:{},      // {comboKey_unit -> [{N, strings}, ...]} multi-config per unit
+  // per-unit cable lengths: key = `${invTypeId}_${unit}` e.g. "I1_3"
+  unitCableLen:{},     // {invTypeId_unit -> length}
+};
+
+// ─── MAIN APP (only navigation & shared state here) ──────────────────────
+const NAV = [
+  {label:'Project Setup', tag:'01'},
+  {label:'Equipment',     tag:'02'},
+  {label:'String Sizing', tag:'03'},
+  {label:'Cable Sizing',  tag:'04'},
+  {label:'Breakers',      tag:'05'},
+  {label:'Summary',       tag:'06'},
+];
+
+function SolarApp() {
+  const [S, setS] = useState(INIT);
+  const [page, setPage] = useState(0);
+
+  // stable updater — never recreated
+  const upd = useCallback((key, val) => setS(prev=>({...prev,[key]:val})),[]);
+
+  // ── DERIVED (memoized) ──────────────────────────────────────────────
+  const derived = useMemo(()=>{
+    const tf  = getTF(S.acTemp);
+    const gf  = getGF(S.acTray, S.acLayers, S.acCpt);
+    const sm  = 1-(S.safetyM/100);
+    const combos = {};
+    S.modules.forEach(m=>{
+      S.inverters.forEach(inv=>{
+        const key=`${m.id}_${inv.id}`;
+        if(S.deletedCombos.includes(key)) return;
+        const vocCold = m.voc*(1+(m.tCoVoc/100)*(S.tMin-25));
+        const vmpHot  = m.vmp*(1+(m.tCoVoc/100)*(S.tMax-25));
+        const effMax  = inv.maxDC*sm;
+        const maxByVoc  = Math.floor(effMax/vocCold);
+        const maxByMppt = Math.floor(inv.mpptMax/m.vmp);
+        const minByMppt = Math.ceil(inv.mpptMin/vmpHot);
+        const maxAllow = Math.min(maxByVoc,maxByMppt);
+        const minAllow = minByMppt;
+        let sugN=maxAllow;
+        if(sugN<minAllow) sugN=0;
+        if(sugN>0&&sugN%2!==0&&sugN-1>=minAllow) sugN--;
+        const N = S.stringOverrides[key]??sugN;
+        const totalStrings = N>0?Math.ceil(m.qty/N):0;
+        const strPerInv    = inv.qty>0?Math.ceil(totalStrings/inv.qty):0;
+        const strPerMppt   = inv.mpptCount>0?Math.ceil(strPerInv/inv.mpptCount):0;
+        const strVocCold   = N*vocCold;
+        const strVmpSTC    = N*m.vmp;
+        const strVmpHot    = N*vmpHot;
+        combos[key]={m,inv,N,sugN,minAllow,maxAllow,totalStrings,strPerInv,strPerMppt,
+          strVocCold,strVmpSTC,strVmpHot,vocCold,vmpHot,effMax,
+          errVoc:strVocCold>inv.maxDC, errVocSm:strVocCold>effMax,
+          errMpptLo:strVmpHot<inv.mpptMin, errMpptHi:strVmpSTC>inv.mpptMax,
+          warnSPM:strPerMppt>inv.maxSPM};
+      });
+    });
+    // ACDB calcs
+    const invUnitsMap={};
+    S.inverters.forEach(inv=>{for(let i=1;i<=inv.qty;i++) invUnitsMap[`${inv.id}_${i}`]=inv;});
+    const acdbCalcs={};
+    S.acdbs.forEach(acdb=>{
+      const totalKW=(acdb.inverters||[]).reduce((s,uid)=>{const inv=invUnitsMap[uid];return s+(inv?.rating||0);},0);
+      const rawI=(acdb.inverters||[]).reduce((s,uid)=>{const inv=invUnitsMap[uid];if(!inv)return s;return s+(inv.rating*1000)/(Math.sqrt(3)*inv.outVolt*inv.pf);},0);
+      const refInv=invUnitsMap[(acdb.inverters||[])[0]];
+      acdbCalcs[acdb.id]={totalKW,rawI,designI:rawI*1.25,refVolt:refInv?.outVolt||400,refPF:refInv?.pf||0.99};
+    });
+    return{tf,gf,combos,acdbCalcs};
+  },[S]);
+
+  // PAGES array — these are the stable top-level functions, not lambdas
+  const PAGES = [Page1, Page2, Page3, Page4, Page5, Page6];
+  const CurrentPage = PAGES[page];
+
+  const totalDC  = S.modules.reduce((s,m)=>s+m.qty*m.watt/1000,0);
+  const totalAC  = S.inverters.reduce((s,i)=>s+i.qty*i.rating,0);
+  const totalMods= S.modules.reduce((s,m)=>s+m.qty,0);
+
+  return (
+    <div style={{display:'flex',minHeight:'100vh',fontFamily:"'Inter',sans-serif",background:T.bg,color:T.text}}>
+      {/* SIDEBAR */}
+      <aside style={{width:220,flexShrink:0,background:T.sidebar,borderRight:`1px solid ${T.border}`,display:'flex',flexDirection:'column'}}>
+        <div style={{padding:'20px 18px 16px',borderBottom:'1px solid rgba(0,212,255,0.08)',display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:36,height:36,borderRadius:8,background:'#020e22',border:'1px solid rgba(0,212,255,0.3)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 2L14 8.5L19 8.5L15 12.5L17 19L11 15.5L5 19L7 12.5L3 8.5L8 8.5Z" fill="#fbbf24"/><line x1="11" y1="16" x2="11" y2="20" stroke="#00d4ff" strokeWidth="1.2"/><rect x="7" y="20" width="8" height="1.5" rx="0.75" fill="#00d4ff" opacity="0.5"/></svg>
+          </div>
+          <div>
+            <div style={{fontFamily:rajFont,fontSize:14,fontWeight:700,letterSpacing:2,color:'#fff'}}>SOLAR DESIGN</div>
+            <div style={{fontFamily:monoFont,fontSize:8,color:T.accent,letterSpacing:2,marginTop:1}}>ENGINEER SUITE v2</div>
+          </div>
+        </div>
+        <div style={{padding:'10px 18px',borderBottom:'1px solid rgba(0,212,255,0.06)',background:'rgba(0,212,255,0.03)'}}>
+          <MonoLbl style={{display:'block',marginBottom:3}}>ACTIVE PROJECT</MonoLbl>
+          <div style={{fontSize:12,color:'#a0c8f0',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{S.projectName||'Untitled Project'}</div>
+        </div>
+        <nav style={{flex:1,padding:'10px 0'}}>
+          {NAV.map((n,i)=>(
+            <button key={i} onClick={()=>setPage(i)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'10px 18px',border:'none',cursor:'pointer',textAlign:'left',background:page===i?'rgba(0,212,255,0.06)':'transparent',color:page===i?T.accent:page>i?'rgba(0,212,255,0.5)':'rgba(140,180,230,0.35)',borderLeft:`2px solid ${page===i?T.accent:page>i?'rgba(0,212,255,0.2)':'transparent'}`,fontSize:12.5,fontWeight:page===i?600:400,transition:'all .15s'}}>
+              <span style={{fontFamily:monoFont,fontSize:10,width:16,flexShrink:0}}>{n.tag}</span>
+              <span>{n.label}</span>
+              {page>i&&<span style={{marginLeft:'auto',fontSize:10,color:'rgba(0,212,255,0.4)'}}>✓</span>}
+            </button>
+          ))}
+        </nav>
+        <div style={{padding:'12px 18px',borderTop:'1px solid rgba(0,212,255,0.08)',background:'rgba(0,0,0,0.2)'}}>
+          {[{l:'DC',v:`${fmt(totalDC,2)} kWp`},{l:'AC',v:`${totalAC}kW`},{l:'Modules',v:fmtI(totalMods)}].map((item,i)=>(
+            <div key={i} style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+              <MonoLbl style={{fontSize:9}}>{item.l}</MonoLbl>
+              <span style={{fontFamily:rajFont,fontSize:12,fontWeight:700,color:T.accent}}>{item.v}</span>
+            </div>
+          ))}
+          <div style={{display:'flex',alignItems:'center',marginTop:8}}>
+            <div style={{width:6,height:6,borderRadius:'50%',background:T.accent,marginRight:5,animation:'blink 1.4s ease-in-out infinite'}}/>
+            <MonoLbl style={{fontSize:9}}>SYSTEM ONLINE</MonoLbl>
+          </div>
+        </div>
+      </aside>
+
+      {/* MAIN */}
+      <main style={{flex:1,overflow:'auto',padding:'26px 30px 40px',maxWidth:1100}}>
+        <div style={{marginBottom:22}}>
+          <MonoLbl style={{color:T.accent,fontSize:10,letterSpacing:2,display:'block',marginBottom:4}}>// MODULE {NAV[page].tag} — {NAV[page].label.toUpperCase()}</MonoLbl>
+          <h1 style={{fontFamily:rajFont,fontSize:24,fontWeight:700,color:'#fff',letterSpacing:1,margin:0}}>{NAV[page].label}</h1>
+        </div>
+
+        <CurrentPage S={S} setS={setS} upd={upd} derived={derived}/>
+
+        <div style={{display:'flex',justifyContent:'space-between',marginTop:28,paddingTop:18,borderTop:'1px solid rgba(0,212,255,0.07)'}}>
+          <button onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0} style={{padding:'9px 20px',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)',background:'transparent',color:'rgba(140,180,230,0.4)',cursor:page===0?'not-allowed':'pointer',fontSize:13,fontFamily:rajFont,letterSpacing:1.5,opacity:page===0?0.35:1}}>← BACK</button>
+          <span style={{fontFamily:monoFont,fontSize:11,color:T.muted,alignSelf:'center'}}>Page {page+1} of {NAV.length}</span>
+          <button onClick={()=>setPage(p=>Math.min(NAV.length-1,p+1))} disabled={page===NAV.length-1} style={{padding:'9px 24px',borderRadius:8,border:'1px solid rgba(0,212,255,0.35)',background:'transparent',color:T.accent,cursor:page===NAV.length-1?'not-allowed':'pointer',fontSize:13,fontFamily:rajFont,fontWeight:700,letterSpacing:2,opacity:page===NAV.length-1?0.35:1}}>NEXT →</button>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(SolarApp));
+  </script>
+</body>
+</html>
